@@ -1,0 +1,17 @@
+body {
+    font-family: sans-serif;
+    margin: 0;
+}
+
+h1 {
+    text-align: center;
+    margin: 20px 0;
+}
+
+/* #map のスタイル */
+#map {
+    height: 600px;  /* 地図の高さを指定 */
+    width: 90%;   /* 地図の幅を指定 */
+    margin: 0 auto; /* 中央揃え */
+    border: 1px solid #ccc;
+}
