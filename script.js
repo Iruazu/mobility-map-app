@@ -4,14 +4,12 @@ import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/fi
 
 // ユーザーが取得した、ウェブアプリのFirebase設定
 const firebaseConfig = {
-    apiKey: "AIzaSyDW1WMrrgv-pg0lJwgR3G__R4xxtnQpevY",
-    authDomain: "mobility-map-ae58e.firebaseapp.com",
-    projectId: "mobility-map-ae58e",
-    storageBucket: "mobility-map-ae58e.appspot.com",
-    messagingSenderId: "714590381625",
-    appId: "1:714590381625:web:fea8e2f819cba4a243cfe8",
-    measurementId: "G-PQ21YKP1VP"
-};
+apiKey: "AIzaSyDW1WMrrgv-pg0lJwgR3G__R4xxtnQpevY",
+authDomain: "mobility-map-ae58e.firebaseapp.com",
+projectId: "mobility-map-ae58e",
+ storageBucket: "mobility-map-ae58e.firebasestorage.app",
+messagingSenderId: "714590381625",
+appId: "1:714590381625:web:fea8e2f819cba4a243cfe8", measurementId: "G-PQ21YKP1VP"};
 
 // Firebaseを初期化
 const app = initializeApp(firebaseConfig);
