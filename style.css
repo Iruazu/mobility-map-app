@@ -1,17 +1,25 @@
-body {
-    font-family: sans-serif;
+/* HTMLとBODYの高さを100%にして、地図を全画面表示できるようにします */
+html, body {
+    height: 100%;
     margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif, 'Noto Sans JP', sans-serif; /* 日本語フォントも追加 */
 }
 
-h1 {
-    text-align: center;
-    margin: 20px 0;
-}
-
-/* #map のスタイル */
+/* 地図が表示されるdivのサイズを定義 */
 #map {
-    height: 600px;  /* 地図の高さを指定 */
-    width: 90%;   /* 地図の幅を指定 */
-    margin: 0 auto; /* 中央揃え */
-    border: 1px solid #ccc;
+    height: 100%;
+    width: 100%;
+}
+
+/* アプリケーション全体をFlexコンテナにして、ヘッダー・地図・フッターを縦に並べます */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh; /* 画面全体の高さを確保 */
+}
+
+/* 地図エリアが残りの高さをすべて使うようにします */
+.map-area {
+    flex-grow: 1; 
 }
