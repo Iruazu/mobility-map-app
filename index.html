@@ -3,15 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>mobility map app</title>
-
-    <!-- 外部ライブラリ: Leaflet.js (OpenStreetMap表示用) のCSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>mobility map observer </title>
 
     <!-- 外部ライブラリ: Tailwind CSS (デザイン調整用) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- 自作のCSSファイルを読み込み -->
+    <!-- Leaflet.jsのCSSは不要になったため削除しました -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-gray-100">
@@ -24,19 +22,23 @@
 
         <!-- 地図が表示されるエリア -->
         <main id="map" class="map-area">
-            <!-- このdivがJavaScriptによって地図に置き換わります -->
+            <!-- このdivがGoogle Mapsに置き換わります -->
         </main>
 
         <!-- フッター部分 -->
         <footer class="bg-white w-full p-2 text-center text-sm text-gray-600">
-            <p>&copy; 2025 mobility app </p>
+            <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
 
-    <!-- 外部ライブラリ: Leaflet.js の JavaScript -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <!-- 自作のJavaScriptファイルを読み込み -->
+    <!-- Leaflet.jsのスクリプトは不要になったため削除しました -->
+    
+    <!-- ★★★ ここからが今回の変更点 ★★★ -->
+    <!-- Google Maps JavaScript API を読み込みます -->
+    <!-- 'YOUR_API_KEY' の部分を、教授から頂いたAPIキーに書き換えてください -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCkptHtUbuznDQzsQFt9JtAnvNqjmMLUlA&callback=initMap&loading=async&libraries=marker" defer></script>
+    
+    <!-- 自作のJavaScriptファイルを "module" として読み込みます -->
     <script type="module" src="script.js"></script>
 </body>
 </html>

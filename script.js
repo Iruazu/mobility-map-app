@@ -1,80 +1,135 @@
-// Firebase SDKから必要な関数をインポート（読み込み）します
+// Firebase SDKから必要な関数をインポートします
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+import { getFirestore, collection, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
 
-// ユーザーが取得した、ウェブアプリのFirebase設定
+// ウェブアプリのFirebase設定
 const firebaseConfig = {
-apiKey: "AIzaSyDW1WMrrgv-pg0lJwgR3G__R4xxtnQpevY",
-authDomain: "mobility-map-ae58e.firebaseapp.com",
-projectId: "mobility-map-ae58e",
- storageBucket: "mobility-map-ae58e.firebasestorage.app",
-messagingSenderId: "714590381625",
-appId: "1:714590381625:web:fea8e2f819cba4a243cfe8", measurementId: "G-PQ21YKP1VP"};
+    apiKey: "AIzaSyDW1WMrrgv-pg0lJwgR3G__R4xxtnQpevY",
+    authDomain: "mobility-map-ae58e.firebaseapp.com",
+    projectId: "mobility-map-ae58e",
+    storageBucket: "mobility-map-ae58e.appspot.com",
+    messagingSenderId: "714590381625",
+    appId: "1:714590381625:web:fea8e2f819cba4a243cfe8",
+    measurementId: "G-PQ21YKP1VP"
+};
 
 // Firebaseを初期化
 const app = initializeApp(firebaseConfig);
-// Firestoreデータベースへの参照を取得
 const db = getFirestore(app);
 
+// ★★★ ここからがGoogle Maps版のコードです ★★★
 
-// --- ここから下が地図の描画とリアルタイム更新の処理です ---
+// グローバルスコープに関数を定義
+// HTMLのonclickから呼び出せるようにするため
+window.handleRideButtonClick = async (docId, action) => {
+    const newStatus = action === 'ride' ? '使用中' : 'アイドリング中';
+    const robotDocRef = doc(db, "robots", docId);
+    try {
+        await updateDoc(robotDocRef, { status: newStatus });
+    } catch (error) {
+        console.error("状態更新エラー:", error);
+    }
+};
 
-// 地図の初期化処理
-const initialLocation = [36.5598, 139.9088];
-const zoomLevel = 17;
-const map = L.map('map').setView(initialLocation, zoomLevel);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-}).addTo(map);
+let map; // mapオブジェクトをグローバルスコープで保持
+let activeMarkers = {}; // 表示中のマーカーを保持するオブジェクト
+let activeInfoWindow = null; // 表示中の情報ウィンドウを保持
 
-// 表示中のマーカーを保持するためのレイヤーグループ
-const markersLayer = L.layerGroup().addTo(map);
+// Google Maps APIの読み込み完了後に呼び出される初期化関数
+window.initMap = () => {
+    const initialLocation = { lat: 36.5598, lng: 139.9088 };
+    const zoomLevel = 17;
 
-// "robots" コレクションへの参照を取得
-const robotsCol = collection(db, 'robots');
-
-// "robots" コレクションの変更をリアルタイムで監視する
-// データが追加・更新・削除されるたびに、この中の処理が自動で実行されます
-onSnapshot(robotsCol, (snapshot) => {
-    console.log("データベースが更新されました！");
-    
-    // 古いマーカーをすべて削除
-    markersLayer.clearLayers();
-
-    // 取得したドキュメント（ロボットのデータ）一つ一つに対して処理を行う
-    snapshot.docs.forEach((doc) => {
-        const robot = doc.data(); // ドキュメントのデータを取得
-
-        // positionデータが存在しない場合は処理をスキップ
-        if (!robot.position || !robot.position.latitude || !robot.position.longitude) {
-            console.warn("位置情報(position)が不正なデータが見つかりました:", robot.id);
-            return; 
-        }
-
-        // ポップアップのHTMLコンテンツを作成
-        const contentString = `
-            <div class="p-1">
-                <h3 class="font-bold text-md">${robot.id}</h3>
-                <p class="text-gray-700">状態: ${robot.status}</p>
-            </div>`;
-        
-        // カスタムアイコンを作成
-        const iconHtml = `<div style="
-            background-color: ${robot.status === '走行中' ? '#4CAF50' : '#2196F3'}; 
-            border-radius: 50%; width: 30px; height: 30px; display: flex; 
-            justify-content: center; align-items: center; color: white; 
-            font-size: 18px; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">🤖</div>`;
-        const customIcon = L.divIcon({
-            html: iconHtml, className: '', iconSize: [30, 30], iconAnchor: [15, 15]
-        });
-
-        // FirestoreのgeopointからLeafletで使える緯度経度の配列に変換
-        const position = [robot.position.latitude, robot.position.longitude];
-
-        // マーカーを作成してレイヤーに追加
-        const marker = L.marker(position, {icon: customIcon});
-        marker.bindPopup(contentString);
-        markersLayer.addLayer(marker);
+    map = new google.maps.Map(document.getElementById("map"), {
+        center: initialLocation,
+        zoom: zoomLevel,
+        mapId: "MOBILITY_MAP_STYLE" // カスタムスタイル用のID
     });
-});
+
+    const robotsCol = collection(db, 'robots');
+    
+    // Firestoreのリアルタイム監視を開始
+    onSnapshot(robotsCol, (snapshot) => {
+        console.log("データベースが更新されました！");
+        
+        // 変更があったドキュメントを効率的に処理
+        snapshot.docChanges().forEach((change) => {
+            const docId = change.doc.id;
+            const robot = change.doc.data();
+
+            if (change.type === "added" || change.type === "modified") {
+                // 既存のマーカーがあれば削除
+                if (activeMarkers[docId]) {
+                    activeMarkers[docId].map = null;
+                }
+                // 新しいマーカーを作成・表示
+                createMarker(docId, robot);
+            } else if (change.type === "removed") {
+                // マーカーを削除
+                if (activeMarkers[docId]) {
+                    activeMarkers[docId].map = null;
+                    delete activeMarkers[docId];
+                }
+            }
+        });
+    });
+}
+
+// マーカーを作成する関数
+function createMarker(docId, robot) {
+    if (!robot.position?.latitude || !robot.position?.longitude) return;
+
+    // ポップアップ（InfoWindow）の中身を生成
+    let popupHtml = `
+        <div class="p-1 font-sans">
+            <h3 class="font-bold text-md">${robot.id}</h3>
+            <p class="text-gray-700">状態: ${robot.status}</p>
+    `;
+    if (robot.status === 'アイドリング中') {
+        popupHtml += `<button onclick="handleRideButtonClick('${docId}', 'ride')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">乗車する</button>`;
+    } else if (robot.status === '使用中') {
+        popupHtml += `<button onclick="handleRideButtonClick('${docId}', 'getoff')" class="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">降車する</button>`;
+    }
+    popupHtml += `</div>`;
+
+    // マーカーの色を決定
+    let markerColor = '#2196F3'; // デフォルトは青 (アイドリング中)
+    if (robot.status === '走行中') markerColor = '#4CAF50';
+    if (robot.status === '使用中') markerColor = '#f59e0b';
+
+    // カスタムマーカー用のHTML要素を作成
+    const glyph = document.createElement("div");
+    glyph.innerHTML = '🤖';
+    glyph.className = 'text-xl';
+    
+    const pin = new google.maps.marker.PinElement({
+        glyph: glyph,
+        background: markerColor,
+        borderColor: '#FFFFFF',
+        scale: 1.2
+    });
+    
+    const position = { lat: robot.position.latitude, lng: robot.position.longitude };
+
+    // マーカーを作成
+    const marker = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position,
+        content: pin.element,
+        title: robot.id,
+    });
+    
+    // マーカークリック時の処理
+    marker.addListener('click', () => {
+        // 既存の情報ウィンドウがあれば閉じる
+        if (activeInfoWindow) {
+            activeInfoWindow.close();
+        }
+        // 新しい情報ウィンドウを作成して表示
+        activeInfoWindow = new google.maps.InfoWindow({ content: popupHtml });
+        activeInfoWindow.open(map, marker);
+    });
+    
+    // 作成したマーカーを保持
+    activeMarkers[docId] = marker;
+}
