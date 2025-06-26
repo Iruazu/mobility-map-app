@@ -1,5 +1,7 @@
 // Firebase SDKから必要な関数をインポートします
+// ★★★ 認証関連の機能を追加でインポート ★★★
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
 import { getFirestore, collection, onSnapshot, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
 
 // ウェブアプリのFirebase設定
@@ -16,56 +18,64 @@ const firebaseConfig = {
 // Firebaseを初期化
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-
-// ★★★ ここからがGoogle Maps版のコードです ★★★
+const auth = getAuth(app); // ★★★ Authサービスを取得 ★★★
 
 // グローバルスコープに関数を定義
-// HTMLのonclickから呼び出せるようにするため
 window.handleRideButtonClick = async (docId, action) => {
     const newStatus = action === 'ride' ? '使用中' : 'アイドリング中';
     const robotDocRef = doc(db, "robots", docId);
     try {
         await updateDoc(robotDocRef, { status: newStatus });
+        map.closePopup(); // InfoWindowを閉じる
     } catch (error) {
         console.error("状態更新エラー:", error);
     }
 };
 
-let map; // mapオブジェクトをグローバルスコープで保持
-let activeMarkers = {}; // 表示中のマーカーを保持するオブジェクト
-let activeInfoWindow = null; // 表示中の情報ウィンドウを保持
+let map;
+let activeMarkers = {};
+let activeInfoWindow = null;
 
 // Google Maps APIの読み込み完了後に呼び出される初期化関数
 window.initMap = () => {
     const initialLocation = { lat: 36.5598, lng: 139.9088 };
-    const zoomLevel = 17;
-
     map = new google.maps.Map(document.getElementById("map"), {
         center: initialLocation,
-        zoom: zoomLevel,
-        mapId: "MOBILITY_MAP_STYLE" // カスタムスタイル用のID
+        zoom: 17,
+        mapId: "MOBILITY_MAP_STYLE"
     });
-
-    const robotsCol = collection(db, 'robots');
     
-    // Firestoreのリアルタイム監視を開始
+    // ★★★ 認証状態の監視を開始 ★★★
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            // ユーザーが（匿名）ログインに成功した場合
+            console.log("匿名認証に成功しました。UserID:", user.uid);
+            // 認証が成功したら、Firestoreのデータ監視を開始する
+            startRealtimeUpdates();
+        } else {
+            // ユーザーがまだログインしていない場合
+            console.log("サインアウト状態です。匿名サインインを試みます...");
+            signInAnonymously(auth).catch((error) => {
+                console.error("匿名サインイン中にエラーが発生しました:", error);
+            });
+        }
+    });
+};
+
+// Firestoreのリアルタイム更新を開始する関数
+function startRealtimeUpdates() {
+    const robotsCol = collection(db, 'robots');
     onSnapshot(robotsCol, (snapshot) => {
         console.log("データベースが更新されました！");
-        
         // 変更があったドキュメントを効率的に処理
         snapshot.docChanges().forEach((change) => {
             const docId = change.doc.id;
             const robot = change.doc.data();
 
             if (change.type === "added" || change.type === "modified") {
-                // 既存のマーカーがあれば削除
-                if (activeMarkers[docId]) {
-                    activeMarkers[docId].map = null;
-                }
-                // 新しいマーカーを作成・表示
+                if (activeMarkers[docId]) activeMarkers[docId].map = null;
                 createMarker(docId, robot);
             } else if (change.type === "removed") {
-                // マーカーを削除
                 if (activeMarkers[docId]) {
                     activeMarkers[docId].map = null;
                     delete activeMarkers[docId];
@@ -79,7 +89,6 @@ window.initMap = () => {
 function createMarker(docId, robot) {
     if (!robot.position?.latitude || !robot.position?.longitude) return;
 
-    // ポップアップ（InfoWindow）の中身を生成
     let popupHtml = `
         <div class="p-1 font-sans">
             <h3 class="font-bold text-md">${robot.id}</h3>
@@ -92,26 +101,18 @@ function createMarker(docId, robot) {
     }
     popupHtml += `</div>`;
 
-    // マーカーの色を決定
-    let markerColor = '#2196F3'; // デフォルトは青 (アイドリング中)
+    let markerColor = '#2196F3';
     if (robot.status === '走行中') markerColor = '#4CAF50';
     if (robot.status === '使用中') markerColor = '#f59e0b';
-
-    // カスタムマーカー用のHTML要素を作成
-    const glyph = document.createElement("div");
-    glyph.innerHTML = '🤖';
-    glyph.className = 'text-xl';
     
     const pin = new google.maps.marker.PinElement({
-        glyph: glyph,
+        glyph: "🤖",
         background: markerColor,
         borderColor: '#FFFFFF',
         scale: 1.2
     });
     
     const position = { lat: robot.position.latitude, lng: robot.position.longitude };
-
-    // マーカーを作成
     const marker = new google.maps.marker.AdvancedMarkerElement({
         map,
         position,
@@ -119,17 +120,11 @@ function createMarker(docId, robot) {
         title: robot.id,
     });
     
-    // マーカークリック時の処理
     marker.addListener('click', () => {
-        // 既存の情報ウィンドウがあれば閉じる
-        if (activeInfoWindow) {
-            activeInfoWindow.close();
-        }
-        // 新しい情報ウィンドウを作成して表示
+        if (activeInfoWindow) activeInfoWindow.close();
         activeInfoWindow = new google.maps.InfoWindow({ content: popupHtml });
         activeInfoWindow.open(map, marker);
     });
     
-    // 作成したマーカーを保持
     activeMarkers[docId] = marker;
 }

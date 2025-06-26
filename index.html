@@ -9,7 +9,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- 自作のCSSファイルを読み込み -->
-    <!-- Leaflet.jsのCSSは不要になったため削除しました -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-gray-100">
@@ -30,14 +29,17 @@
             <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
+    <!-- 1. APIキーが書かれたファイルを読み込みます (このファイルはGitHubには上がりません) -->
+    <script src="apiKey.js"></script> 
 
-    <!-- Leaflet.jsのスクリプトは不要になったため削除しました -->
-    
-    <!-- ★★★ ここからが今回の変更点 ★★★ -->
-    <!-- Google Maps JavaScript API を読み込みます -->
-    <!-- 'YOUR_API_KEY' の部分を、教授から頂いたAPIキーに書き換えてください -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCkptHtUbuznDQzsQFt9JtAnvNqjmMLUlA&callback=initMap&loading=async&libraries=marker" defer></script>
-    
+    <!-- 2. 読み込んだAPIキーを使って、動的にGoogle Mapsを読み込みます -->
+    <script>
+      const googleApiScript = document.createElement('script');
+      googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&callback=initMap&loading=async&libraries=marker`;
+      googleApiScript.defer = true;
+      document.head.appendChild(googleApiScript);
+    </script>
+
     <!-- 自作のJavaScriptファイルを "module" として読み込みます -->
     <script type="module" src="script.js"></script>
 </body>
