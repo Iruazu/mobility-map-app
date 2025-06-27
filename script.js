@@ -26,7 +26,9 @@ window.handleRideButtonClick = async (docId, action) => {
     const robotDocRef = doc(db, "robots", docId);
     try {
         await updateDoc(robotDocRef, { status: newStatus });
-        map.closePopup(); // InfoWindowを閉じる
+        if (activeInfoWindow) {
+            activeInfoWindow.close();
+        }
     } catch (error) {
         console.error("状態更新エラー:", error);
     }
@@ -36,13 +38,14 @@ window.handleRideButtonClick = async (docId, action) => {
 window.handleCallRobotClick = async (lat, lng) => {
     console.log(`配車リクエスト発生！ 場所: (${lat}, ${lng})`);
     
-    // 1. 利用可能なロボットを探す
     const robotsCol = collection(db, 'robots');
     const robotSnapshot = await getDocs(robotsCol);
     
     let closestRobot = null;
     let minDistance = Infinity;
 
+    // ★★★ バグ修正点 ★★★
+    // doc.id (本当の住所) と robot (名前などのデータ) を正しく区別して探す
     robotSnapshot.forEach((doc) => {
         const robot = doc.data();
         if (robot.status === 'アイドリング中') {
@@ -52,7 +55,8 @@ window.handleCallRobotClick = async (lat, lng) => {
             );
             if (distance < minDistance) {
                 minDistance = distance;
-                closestRobot = { id: doc.id, ...robot };
+                // docId(住所)とdata(中身)を分けて保持する
+                closestRobot = { docId: doc.id, data: robot };
             }
         }
     });
@@ -62,26 +66,28 @@ window.handleCallRobotClick = async (lat, lng) => {
         return;
     }
     
-    console.log(`最も近いロボットが見つかりました: ${closestRobot.id} (距離: ${minDistance.toFixed(2)} km)`);
+    console.log(`最も近いロボットが見つかりました: ${closestRobot.data.id} (距離: ${minDistance.toFixed(2)} km)`);
     
-    // 2. ロボットの状態を更新し、目的地を設定
-    const robotDocRef = doc(db, "robots", closestRobot.id);
+    // ★★★ バグ修正点 ★★★
+    // 更新命令を出す際に、ロボットの名前(closestRobot.data.id)ではなく、
+    // 本当の住所(closestRobot.docId)を使う
+    const robotDocRef = doc(db, "robots", closestRobot.docId);
     const destinationGeoPoint = new GeoPoint(lat, lng);
     await updateDoc(robotDocRef, {
         status: '配車中',
         destination: destinationGeoPoint
     });
 
-    // 3. 経路を計算して地図に描画
-    calculateAndDisplayRoute(closestRobot.position, { lat, lng });
+    // 経路を計算して地図に描画
+    calculateAndDisplayRoute(closestRobot.data.position, { lat, lng });
 };
 
 
 let map;
-let activeMarkers = {}; // ロボットのマーカーを保持
+let activeMarkers = {};
 let activeInfoWindow = null;
-let userMarker = null; // ユーザーマーカーを保持するための変数
-let directionsRenderer = null; // 経路表示用のレンダラーを保持する変数
+let userMarker = null;
+let directionsRenderer = null;
 
 // Google Maps APIの読み込み完了後に呼び出される初期化関数
 window.initMap = () => {
@@ -148,7 +154,8 @@ function calculateAndDisplayRoute(origin, destination) {
             if (status === "OK") {
                 directionsRenderer.setDirections(response);
             } else {
-                window.alert("経路情報の取得に失敗しました: " + status);
+                console.error("Directions request failed due to " + status, response);
+                window.alert("経路情報の取得に失敗しました。ステータス: " + status);
             }
         }
     );
