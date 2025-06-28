@@ -2,3 +2,4 @@
 
 # APIキーが書かれているこのファイルを、Gitの管理対象から除外する
 apiKey.js
+serviceAccountKey.json
