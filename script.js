@@ -19,6 +19,10 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 
+// --- サイドバー関連の変数 ---
+let sidebarOpen = false;
+let robotData = {}; // ロボットデータを保持
+
 // --- グローバル関数定義 ---
 
 // ロボットの「乗車/降車」ボタンがクリックされたときの処理
@@ -93,6 +97,23 @@ window.handleSetDestinationClick = async (robotDocId, lat, lng) => {
     calculateAndDisplayRoute(robotDocId, currentPosition, destination);
 };
 
+// サイドバーのロボット項目がクリックされたときの処理
+window.handleRobotItemClick = (docId) => {
+    const robot = robotData[docId];
+    if (!robot || !robot.position) return;
+    
+    const position = { lat: robot.position.latitude, lng: robot.position.longitude };
+    map.setCenter(position);
+    map.setZoom(18);
+    
+    // マーカーをクリックしてInfoWindowを開く
+    if (activeMarkers[docId]) {
+        google.maps.event.trigger(activeMarkers[docId], 'click');
+    }
+    
+    // サイドバーを閉じる
+    closeSidebar();
+};
 
 let map;
 let activeMarkers = {};
@@ -114,6 +135,9 @@ window.initMap = () => {
         handleMapClick(event.latLng);
     });
 
+    // サイドバーの初期化
+    initializeSidebar();
+
     onAuthStateChanged(auth, (user) => {
         if (user) {
             console.log("匿名認証に成功しました。UserID:", user.uid);
@@ -123,6 +147,91 @@ window.initMap = () => {
         }
     });
 };
+
+// サイドバーの初期化
+function initializeSidebar() {
+    const hamburgerBtn = document.getElementById('hamburger-btn');
+    const closeSidebarBtn = document.getElementById('close-sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    hamburgerBtn.addEventListener('click', toggleSidebar);
+    closeSidebarBtn.addEventListener('click', closeSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar);
+}
+
+// サイドバーの開閉
+function toggleSidebar() {
+    if (sidebarOpen) {
+        closeSidebar();
+    } else {
+        openSidebar();
+    }
+}
+
+function openSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const hamburgerIcon = document.querySelector('.hamburger-icon');
+    
+    sidebar.classList.add('open');
+    overlay.classList.add('active');
+    hamburgerIcon.classList.add('active');
+    sidebarOpen = true;
+}
+
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const hamburgerIcon = document.querySelector('.hamburger-icon');
+    
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+    hamburgerIcon.classList.remove('active');
+    sidebarOpen = false;
+}
+
+// ロボット一覧の更新
+function updateRobotList() {
+    const robotListContainer = document.getElementById('robot-list');
+    
+    if (Object.keys(robotData).length === 0) {
+        robotListContainer.innerHTML = `
+            <div class="text-center text-gray-500 py-4">
+                <p>ロボットが見つかりません</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const robotItems = Object.entries(robotData).map(([docId, robot]) => {
+        const statusClass = getStatusClass(robot.status);
+        const statusText = robot.status;
+        const locationText = robot.position ? 
+            `${robot.position.latitude.toFixed(4)}, ${robot.position.longitude.toFixed(4)}` : 
+            '位置情報なし';
+        
+        return `
+            <div class="robot-item ${statusClass}" onclick="handleRobotItemClick('${docId}')">
+                <div class="robot-name">${robot.id}</div>
+                <div class="robot-status">状態: ${statusText}</div>
+                <div class="robot-location">📍 ${locationText}</div>
+            </div>
+        `;
+    }).join('');
+    
+    robotListContainer.innerHTML = robotItems;
+}
+
+// ステータスに応じたCSSクラスを返す
+function getStatusClass(status) {
+    switch (status) {
+        case 'アイドリング中': return 'status-idle';
+        case '使用中': return 'status-in-use';
+        case '配車中': return 'status-dispatching';
+        case '走行中': return 'status-moving';
+        default: return '';
+    }
+}
 
 // 地図クリック時のメイン処理関数
 async function handleMapClick(location) {
@@ -194,7 +303,6 @@ function placeDestinationMarker(location, robotDocId) {
     openInfoWindow(infoWindow, userMarker);
 }
 
-
 // --- 汎用ヘルパー関数群 (重複を削減) ---
 function createSvgIcon(type) {
     const svgData = {
@@ -204,18 +312,20 @@ function createSvgIcon(type) {
     element.innerHTML = svgData[type];
     return element;
 }
+
 function createAdvancedMarker(position, content, title) {
     return new google.maps.marker.AdvancedMarkerElement({ position, map, content, title });
 }
+
 function createInfoWindow(content) {
     return new google.maps.InfoWindow({ content });
 }
+
 function openInfoWindow(infoWindow, anchor) {
     if (activeInfoWindow) activeInfoWindow.close();
     infoWindow.open(map, anchor);
     activeInfoWindow = infoWindow;
 }
-
 
 // --- 既存のコア機能関数群 (一部変更あり) ---
 function calculateAndDisplayRoute(robotDocId, origin, destination) {
@@ -300,18 +410,22 @@ function startRealtimeUpdates() {
             const robot = change.doc.data();
 
             if (change.type === "added" || change.type === "modified") {
+                robotData[docId] = robot; // サイドバー用のデータを更新
                 if (activeMarkers[docId]) activeMarkers[docId].map = null;
                 createMarker(docId, robot);
             } else if (change.type === "removed") {
+                delete robotData[docId]; // サイドバー用のデータを削除
                 if (activeMarkers[docId]) {
                     activeMarkers[docId].map = null;
                     delete activeMarkers[docId];
                 }
             }
         });
+        
+        // サイドバーのロボット一覧を更新
+        updateRobotList();
     });
 }
-
 
 // マーカーを作成する関数
 function createMarker(docId, robot) {

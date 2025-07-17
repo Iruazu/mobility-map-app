@@ -15,9 +15,39 @@
 
     <div class="app-container">
         <!-- ヘッダー部分 -->
-        <header class="bg-white shadow-md w-full p-4 text-center">
+        <header class="bg-white shadow-md w-full p-4 text-center relative">
+            <!-- ハンバーガーメニューボタン -->
+            <button id="hamburger-btn" class="absolute left-4 top-1/2 transform -translate-y-1/2 p-2 rounded-md hover:bg-gray-100 transition-colors">
+                <div class="hamburger-icon">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </button>
+            
             <h1 class="text-2xl font-bold text-gray-800">mobility map observer</h1>
         </header>
+
+        <!-- サイドバー -->
+        <div id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h2 class="text-lg font-bold text-gray-800">Mobility 状態</h2>
+                <button id="close-sidebar" class="p-1 rounded-md hover:bg-gray-100 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="robot-list" class="robot-list">
+                <div class="text-center text-gray-500 py-4">
+                    <p>ロボット情報を読み込み中...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- サイドバーオーバーレイ -->
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
         <!-- 地図が表示されるエリア -->
         <main id="map" class="map-area">
@@ -29,7 +59,7 @@
             <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
-    <!-- 1. APIキーが書かれたファイルを読み込みます (このファイルはGitHubには上がりません) -->
+    <!-- 1. APIキーが書かれたファイルを読み込みます  -->
     <script src="apiKey.js"></script> 
 
     <!-- 2. 読み込んだAPIキーを使って、動的にGoogle Mapsを読み込みます -->
