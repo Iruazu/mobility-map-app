@@ -31,8 +31,10 @@ window.handleRideButtonClick = async (docId, action) => {
     if (action === 'ride') {
         await updateDoc(robotDocRef, { status: '使用中' });
         if (userMarker) userMarker.map = null; // 乗車したらユーザーマーカーを消す
+        showNotification('乗車しました！目的地を設定してください。', 'success');
     } else { // getoff
         await updateDoc(robotDocRef, { status: 'アイドリング中' });
+        showNotification('降車しました。', 'success');
     }
     if (activeInfoWindow) activeInfoWindow.close();
 };
@@ -61,11 +63,12 @@ window.handleCallRobotClick = async (lat, lng) => {
     });
 
     if (!closestRobot) {
-        alert("現在、利用可能なロボットがいません。");
+        showNotification("現在、利用可能なロボットがいません。", 'warning');
         return;
     }
     
     console.log(`最も近いロボットが見つかりました: ${closestRobot.data.id}`);
+    showNotification(`${closestRobot.data.id}を配車しています...`, 'info');
     
     const robotDocRef = doc(db, "robots", closestRobot.docId);
     await updateDoc(robotDocRef, {
@@ -92,6 +95,8 @@ window.handleSetDestinationClick = async (robotDocId, lat, lng) => {
         status: '走行中',
         destination: new GeoPoint(destination.lat, destination.lng)
     });
+
+    showNotification('目的地を設定しました。出発します！', 'success');
 
     // 現在地から最終目的地までの経路を計算・表示
     calculateAndDisplayRoute(robotDocId, currentPosition, destination);
@@ -266,10 +271,12 @@ function placePickupMarker(location) {
     const lat = location.lat();
     const lng = location.lng();
     const popupHtml = `
-        <div class="p-1 font-sans">
-            <h3 class="font-bold text-md">乗車地点</h3>
-            <p class="text-gray-600 text-sm">緯度: ${lat.toFixed(4)}, 経度: ${lng.toFixed(4)}</p>
-            <button onclick="handleCallRobotClick(${lat}, ${lng})" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">この場所にロボットを呼ぶ</button>
+        <div class="p-3 font-sans">
+            <h3 class="font-bold text-lg mb-2">乗車地点</h3>
+            <p class="text-gray-600 text-sm mb-3">緯度: ${lat.toFixed(4)}, 経度: ${lng.toFixed(4)}</p>
+            <button onclick="handleCallRobotClick(${lat}, ${lng})" class="action-button primary">
+                🚗 この場所にロボットを呼ぶ
+            </button>
         </div>`;
     
     const infoWindow = createInfoWindow(popupHtml);
@@ -292,10 +299,12 @@ function placeDestinationMarker(location, robotDocId) {
     const lat = location.lat();
     const lng = location.lng();
     const popupHtml = `
-        <div class="p-1 font-sans">
-            <h3 class="font-bold text-md">目的地</h3>
-            <p class="text-gray-600 text-sm">緯度: ${lat.toFixed(4)}, 経度: ${lng.toFixed(4)}</p>
-            <button onclick="handleSetDestinationClick('${robotDocId}', ${lat}, ${lng})" class="bg-emerald-500 hover:bg-emerald-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">この場所へ行く</button>
+        <div class="p-3 font-sans">
+            <h3 class="font-bold text-lg mb-2">目的地</h3>
+            <p class="text-gray-600 text-sm mb-3">緯度: ${lat.toFixed(4)}, 経度: ${lng.toFixed(4)}</p>
+            <button onclick="handleSetDestinationClick('${robotDocId}', ${lat}, ${lng})" class="action-button primary">
+                🏁 この場所へ行く
+            </button>
         </div>`;
 
     const infoWindow = createInfoWindow(popupHtml);
@@ -351,7 +360,7 @@ function calculateAndDisplayRoute(robotDocId, origin, destination) {
                 startMovementSimulation(robotDocId, path);
             } else {
                 console.error("Directions request failed: " + status, response);
-                window.alert("経路情報の取得に失敗しました: " + status);
+                showNotification("経路情報の取得に失敗しました: " + status, 'error');
             }
         }
     );
@@ -372,23 +381,25 @@ function startMovementSimulation(robotId, path) {
             const robotDoc = await getDoc(robotDocRef);
             const statusBeforeRide = robotDoc.data().status;
             
-            // 配車完了ならアイドリング、目的地到着なら使用中に戻す
-            const finalStatus = statusBeforeRide === '配車中' ? 'アイドリング中' : '使用中';
-
-            await updateDoc(robotDocRef, {
-                status: finalStatus,
-                destination: deleteField()
-            });
+            if (statusBeforeRide === '配車中') {
+                // 配車完了時
+                await updateDoc(robotDocRef, {
+                    status: 'アイドリング中',
+                    destination: deleteField()
+                });
+                if (userMarker) userMarker.map = null;
+                showNotification('ロボットが到着しました！', 'success');
+            } else {
+                // 目的地到着時 - 自動降車処理
+                await updateDoc(robotDocRef, {
+                    status: 'アイドリング中', // 自動で降車状態に
+                    destination: deleteField()
+                });
+                if (userMarker) userMarker.map = null;
+                showNotification('目的地に到着しました。自動的に降車しました。', 'success');
+            }
 
             if(directionsRenderer) directionsRenderer.setMap(null);
-            
-            if (finalStatus === 'アイドリング中') {
-                 // 配車完了時
-                if (userMarker) userMarker.map = null; // ユーザーマーカーを消去
-            } else {
-                // 目的地到着時
-                alert('目的地に到着しました。');
-            }
             return;
         }
 
@@ -433,11 +444,44 @@ function createMarker(docId, robot) {
 
     let popupHtml;
     if (robot.status === 'アイドリング中') {
-        popupHtml = `<div class="p-1 font-sans"><h3 class="font-bold text-md">${robot.id}</h3><p class="text-gray-700">状態: ${robot.status}</p><button onclick="handleRideButtonClick('${docId}', 'ride')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">乗車する</button></div>`;
+        popupHtml = `
+            <div class="p-3 font-sans">
+                <h3 class="font-bold text-lg mb-2">${robot.id}</h3>
+                <div class="status-badge status-idle">利用可能</div>
+                <button onclick="handleRideButtonClick('${docId}', 'ride')" class="action-button primary mt-3">
+                    🚗 乗車する
+                </button>
+            </div>`;
     } else if (robot.status === '使用中') {
-        popupHtml = `<div class="p-1 font-sans"><h3 class="font-bold text-md">${robot.id}</h3><p class="text-gray-700">状態: ${robot.status}</p><p class="text-sm text-gray-500 mt-1">地図をクリックして目的地を設定</p><button onclick="handleRideButtonClick('${docId}', 'getoff')" class="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">降車する</button></div>`;
+        popupHtml = `
+            <div class="p-3 font-sans">
+                <h3 class="font-bold text-lg mb-2">${robot.id}</h3>
+                <div class="status-badge status-in-use">使用中</div>
+                <p class="text-sm text-gray-600 mt-2 mb-3">📍 地図をクリックして目的地を設定してください</p>
+                <button onclick="handleRideButtonClick('${docId}', 'getoff')" class="action-button secondary">
+                    🚪 降車する
+                </button>
+            </div>`;
+    } else if (robot.status === '配車中') {
+        popupHtml = `
+            <div class="p-3 font-sans">
+                <h3 class="font-bold text-lg mb-2">${robot.id}</h3>
+                <div class="status-badge status-dispatching">配車中</div>
+                <p class="text-sm text-gray-600 mt-2">お迎えに向かっています...</p>
+            </div>`;
+    } else if (robot.status === '走行中') {
+        popupHtml = `
+            <div class="p-3 font-sans">
+                <h3 class="font-bold text-lg mb-2">${robot.id}</h3>
+                <div class="status-badge status-moving">走行中</div>
+                <p class="text-sm text-gray-600 mt-2">目的地に向かっています...</p>
+            </div>`;
     } else {
-        popupHtml = `<div class="p-1 font-sans"><h3 class="font-bold text-md">${robot.id}</h3><p class="text-gray-700">状態: ${robot.status}</p></div>`;
+        popupHtml = `
+            <div class="p-3 font-sans">
+                <h3 class="font-bold text-lg mb-2">${robot.id}</h3>
+                <div class="status-badge">${robot.status}</div>
+            </div>`;
     }
 
     let markerColor = '#2196F3'; 
@@ -471,4 +515,36 @@ function getDistance(pos1, pos2) {
               Math.sin(dLng / 2) * Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+}
+
+// 通知を表示する関数
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <span class="notification-icon">${getNotificationIcon(type)}</span>
+            <span class="notification-message">${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // アニメーション開始
+    setTimeout(() => notification.classList.add('show'), 100);
+    
+    // 3秒後に自動で消去
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => document.body.removeChild(notification), 300);
+    }, 3000);
+}
+
+function getNotificationIcon(type) {
+    switch(type) {
+        case 'success': return '✅';
+        case 'warning': return '⚠️';
+        case 'error': return '❌';
+        default: return 'ℹ️';
+    }
 }

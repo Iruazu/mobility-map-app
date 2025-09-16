@@ -1,4 +1,4 @@
-/* HTMLとBODYの高さを100%にして、地図を全画面表示できるようにします */
+/* HTMLとBODYの高さを100%にして、地図を全画面表示 */
 html, body {
     height: 100%;
     margin: 0;
@@ -150,4 +150,130 @@ html, body {
 .sidebar-overlay.active {
     opacity: 1;
     visibility: visible;
+}
+
+/* 通知システムのスタイル */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 16px;
+    min-width: 300px;
+    z-index: 2000;
+    transform: translateX(100%);
+    opacity: 0;
+    transition: all 0.3s ease;
+    border-left: 4px solid #3b82f6;
+}
+
+.notification.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+.notification.success {
+    border-left-color: #10b981;
+}
+
+.notification.warning {
+    border-left-color: #f59e0b;
+}
+
+.notification.error {
+    border-left-color: #ef4444;
+}
+
+.notification-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.notification-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.notification-message {
+    color: #374151;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+/* モバイル対応 */
+@media (max-width: 640px) {
+    .notification {
+        right: 10px;
+        left: 10px;
+        min-width: auto;
+        transform: translateY(-100%);
+    }
+    
+    .notification.show {
+        transform: translateY(0);
+    }
+}
+
+/* InfoWindow内のスタイル */
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: center;
+    background-color: #f3f4f6;
+    color: #6b7280;
+}
+
+.status-badge.status-idle {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.status-badge.status-in-use {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.status-badge.status-dispatching {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.status-badge.status-moving {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.action-button {
+    width: 100%;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.action-button.primary {
+    background-color: #3b82f6;
+    color: white;
+}
+
+.action-button.primary:hover {
+    background-color: #2563eb;
+}
+
+.action-button.secondary {
+    background-color: #ef4444;
+    color: white;
+}
+
+.action-button.secondary:hover {
+    background-color: #dc2626;
 }
