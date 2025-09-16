@@ -22,7 +22,6 @@ class MobilityApp {
             console.log('Mobility Appを初期化しています...');
 
             // Google Maps APIがロードされるのを待つ
-            // DOMContentLoadedイベント内でこの処理を実行
             await this.waitForGoogleMaps();
             
             // サービス初期化
@@ -50,10 +49,17 @@ class MobilityApp {
      */
     waitForGoogleMaps() {
         return new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 100; // 10秒待機（100 * 100ms）
+            
             const checkApi = () => {
                 if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                    console.log('Google Maps API読み込み完了');
                     resolve();
+                } else if (attempts >= maxAttempts) {
+                    reject(new Error('Google Maps APIの読み込みがタイムアウトしました'));
                 } else {
+                    attempts++;
                     setTimeout(checkApi, 100);
                 }
             };
@@ -65,6 +71,11 @@ class MobilityApp {
      * マップの初期化
      */
     initializeMap() {
+        if (!this.mapService) {
+            console.error('MapServiceが初期化されていません');
+            return;
+        }
+
         this.mapService.initializeMap('map', (location) => {
             this.uiService.handleMapClick(location);
         });
@@ -81,12 +92,60 @@ class MobilityApp {
         
         // デバッグ用：10秒後にデバッグ情報を表示
         setTimeout(() => {
-            this.uiService.showDebugInfo();
+            if (this.uiService) {
+                this.uiService.showDebugInfo();
+            }
         }, 10000);
     }
 
-    // getStatus, shutdown, その他のメソッドは変更なし
-    // ...
+    /**
+     * アプリケーションの状態を取得
+     * @returns {Object} アプリケーション状態
+     */
+    getStatus() {
+        return {
+            initialized: this.isInitialized,
+            services: {
+                mapService: !!this.mapService,
+                robotService: !!this.robotService,
+                uiService: !!this.uiService
+            },
+            activeMarkers: this.mapService ? Object.keys(this.mapService.activeMarkers).length : 0,
+            activeSimulations: this.robotService ? Object.keys(this.robotService.activeSimulations).length : 0,
+            userMarker: this.mapService ? (this.mapService.userMarker ? 'Present' : 'None') : 'Unknown',
+            mapInitialized: this.mapService ? !!this.mapService.map : false
+        };
+    }
+
+    /**
+     * アプリケーション終了処理
+     */
+    shutdown() {
+        console.log('Mobility Appをシャットダウンしています...');
+        
+        if (this.robotService) {
+            this.robotService.stopAllSimulations();
+        }
+        
+        if (this.uiService) {
+            this.uiService.cleanup();
+        }
+        
+        this.isInitialized = false;
+        console.log('Mobility Appシャットダウン完了');
+    }
+
+    /**
+     * 手動デバッグ情報表示
+     */
+    showDebug() {
+        console.log('=== Manual Debug Info ===');
+        console.log('App Status:', this.getStatus());
+        if (this.uiService) {
+            this.uiService.showDebugInfo();
+        }
+        console.log('=== End Manual Debug ===');
+    }
 }
 
 // グローバルスコープでアプリケーションインスタンスを作成
@@ -94,16 +153,31 @@ const mobilityApp = new MobilityApp();
 
 // Google Maps APIのコールバック関数をグローバルスコープに公開
 window.initMap = () => {
-    mobilityApp.initMap();
+    // Google Maps APIから呼び出される場合は何もしない
+    // 実際の初期化はDOMContentLoaded時に行う
+    console.log('Google Maps APIコールバックが呼び出されました');
 };
 
-// デバッグ用：アプリケーション状態をコンソールで確認
+// デバッグ用関数をグローバルスコープに公開
 window.getMobilityAppStatus = () => {
     return mobilityApp.getStatus();
 };
 
+window.showMobilityAppDebug = () => {
+    mobilityApp.showDebug();
+};
+
+// 手動でアプリを再初期化する関数（デバッグ用）
+window.reinitializeMobilityApp = () => {
+    mobilityApp.shutdown();
+    setTimeout(() => {
+        mobilityApp.initialize();
+    }, 1000);
+};
+
 // ページロード時にアプリケーションを初期化
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM読み込み完了、アプリケーション初期化を開始');
     mobilityApp.initialize();
 });
 
@@ -112,13 +186,15 @@ window.addEventListener('beforeunload', () => {
     mobilityApp.shutdown();
 });
 
-// エラー処理
+// エラー処理の強化
 window.addEventListener('error', (event) => {
     console.error('グローバルエラー:', event.error);
+    console.error('ファイル:', event.filename, '行:', event.lineno);
 });
 
 window.addEventListener('unhandledrejection', (event) => {
     console.error('未処理のPromiseリジェクション:', event.reason);
+    event.preventDefault(); // エラーがブラウザのコンソールに表示されるのを防ぐ
 });
 
 export default mobilityApp;
