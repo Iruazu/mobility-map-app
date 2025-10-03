@@ -1,6 +1,6 @@
 /**
  * sensorDashboard.js - Real-time sensor data display for Web UI
- * Add to js/services/ directory
+ * Complete Fixed Version
  */
 
 export class SensorDashboard {
@@ -45,6 +45,11 @@ export class SensorDashboard {
         const telemetry = robotData.telemetry || {};
         const panelsContainer = document.getElementById('sensor-panels');
 
+        if (!panelsContainer) {
+            console.error('Sensor panels container not found');
+            return;
+        }
+
         // Create panel if doesn't exist
         if (!this.sensorPanels[robotId]) {
             this.sensorPanels[robotId] = this.createSensorPanel(robotId, robotData);
@@ -79,6 +84,8 @@ export class SensorDashboard {
                         <div class="sensor-bar">
                             <div class="sensor-bar-fill" id="battery-bar-${robotId}" style="width: 0%"></div>
                         </div>
+                    </div>
+                </div>
                 
                 <!-- Speed -->
                 <div class="sensor-item">
@@ -119,7 +126,8 @@ export class SensorDashboard {
         // Status indicator
         const statusEl = document.getElementById(`status-${robotId}`);
         if (statusEl) {
-            statusEl.textContent = robotData.status || 'unknown';
+            const displayStatus = this.getStatusDisplayName(robotData.status);
+            statusEl.textContent = displayStatus;
             statusEl.className = `status-indicator status-${this.getStatusClass(robotData.status)}`;
         }
 
@@ -183,18 +191,27 @@ export class SensorDashboard {
     }
 
     /**
+     * Get display name for status (English → Japanese)
+     */
+    getStatusDisplayName(status) {
+        const statusMap = {
+            'idle': 'アイドリング中',
+            'in_use': '使用中',
+            'moving': '走行中',
+            'dispatching': '配車中'
+        };
+        return statusMap[status] || status;
+    }
+
+    /**
      * Get CSS class for status
      */
     getStatusClass(status) {
         const statusMap = {
-            'アイドリング中': 'idle',
             'idle': 'idle',
-            '使用中': 'in-use',
             'in_use': 'in-use',
-            '配車中': 'dispatching',
-            'dispatching': 'dispatching',
-            '走行中': 'moving',
-            'moving': 'moving'
+            'moving': 'moving',
+            'dispatching': 'dispatching'
         };
         return statusMap[status] || 'unknown';
     }
@@ -211,7 +228,7 @@ export class SensorDashboard {
 
         // Show "no data" if no panels left
         const panelsContainer = document.getElementById('sensor-panels');
-        if (Object.keys(this.sensorPanels).length === 0) {
+        if (panelsContainer && Object.keys(this.sensorPanels).length === 0) {
             panelsContainer.innerHTML = '<p class="no-data">No robot selected</p>';
         }
     }
@@ -222,6 +239,8 @@ export class SensorDashboard {
     toggleDashboard() {
         const dashboard = document.getElementById('sensor-dashboard');
         const toggleBtn = document.getElementById('toggle-dashboard');
+        
+        if (!dashboard || !toggleBtn) return;
         
         if (dashboard.classList.contains('collapsed')) {
             dashboard.classList.remove('collapsed');
@@ -243,4 +262,3 @@ export class SensorDashboard {
         this.sensorPanels = {};
     }
 }
-
