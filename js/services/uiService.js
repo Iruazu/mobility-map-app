@@ -2,10 +2,21 @@
  * UI制御サービス
  */
 export class UIService {
+    // 🚀 constructor は、main.js からの呼び出し順序に合わせて robotService を受け取る
     constructor(robotService, mapService) {
-        this.robotService = robotService;
+        this.robotService = robotService; // 初期化時は null の可能性がある
         this.mapService = mapService;
         this.setupGlobalHandlers();
+    }
+
+    /**
+     * 後から RobotService の参照を設定する (main.js の初期化順序の問題を解決)
+     * @param {RobotService} robotService - RobotService のインスタンス
+     */
+    setRobotService(robotService) {
+        // 🚨 main.js の TypeError を解消するために必須のメソッド
+        this.robotService = robotService;
+        console.log("UIService: RobotService の参照を解決しました。");
     }
 
     /**
@@ -14,15 +25,22 @@ export class UIService {
     setupGlobalHandlers() {
         // グローバル関数として公開（HTMLのonclickから呼び出されるため）
         window.handleRideButtonClick = (docId, action) => {
-            this.handleRideButtonClick(docId, action);
+            // 🚨 this.robotService が null の場合があるためチェック
+            if (this.robotService) {
+                this.handleRideButtonClick(docId, action);
+            }
         };
 
         window.handleCallRobotClick = (lat, lng) => {
-            this.handleCallRobotClick(lat, lng);
+             if (this.robotService) {
+                this.handleCallRobotClick(lat, lng);
+            }
         };
 
         window.handleSetDestinationClick = (robotDocId, lat, lng) => {
-            this.handleSetDestinationClick(robotDocId, lat, lng);
+             if (this.robotService) {
+                this.handleSetDestinationClick(robotDocId, lat, lng);
+            }
         };
     }
 
@@ -54,6 +72,7 @@ export class UIService {
             this.showLoadingMessage('ロボットを呼んでいます...');
             await this.robotService.callRobot(lat, lng);
             this.hideLoadingMessage();
+            // 成功メッセージは RobotService 内で処理されるか、ROS2からのフィードバックを待つべきですが、ここでは簡略化
         } catch (error) {
             console.error('配車処理エラー:', error);
             this.hideLoadingMessage();
@@ -86,6 +105,10 @@ export class UIService {
      */
     async handleMapClick(location) {
         try {
+            if (!this.robotService) {
+                 this.showErrorMessage('アプリケーションの初期化が完了していません。');
+                 return;
+            }
             // 現在「使用中」のロボットがいるか確認
             const inUseRobot = await this.robotService.getInUseRobot();
 

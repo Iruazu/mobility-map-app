@@ -2,7 +2,7 @@ import { initializeAuth } from './config/firebase.js';
 import { MapService } from './services/mapService.js';
 import { RobotService } from './services/robotService.js';
 import { UIService } from './services/uiService.js';
-import { SensorDashboard } from './services/sensorDashboard.js'; // 🚀 1. SensorDashboard をインポート
+import { SensorDashboard } from './services/sensorDashboard.js'; // 🚀 SensorDashboard をインポート
 
 /**
  * メインアプリケーションクラス
@@ -28,19 +28,18 @@ class MobilityApp {
             
             // サービス初期化
             this.mapService = new MapService();
-            // 🚀 2. SensorDashboard をインスタンス化
             this.sensorDashboard = new SensorDashboard(this.mapService); 
             
-            // 3. UIService は RobotService の前に初期化が必要な場合があるため、一旦この順序を維持
-            this.uiService = new UIService(this.robotService, this.mapService);
+            // 🚀 修正後の順序とロジック
+            // 1. UIService を初期化。ただし、RobotService はまだないので null を渡す。
+            this.uiService = new UIService(null, this.mapService);
             
-            // 🚀 4. RobotService の初期化時に SensorDashboard を渡す
-            //    RobotService が UIService に依存している場合があるため、引数の順序を確認してください。
-            //    ここでは、(MapService, UIService, SensorDashboard) の順で引数を渡すことを想定します。
+            // 2. RobotService を初期化。MapService, UIService, SensorDashboard を渡す。
             this.robotService = new RobotService(this.mapService, this.uiService, this.sensorDashboard);
 
-            // 依存関係を解決: RobotService が UIService より後にインスタンス化されたため、UIService の RobotService への参照を更新
-            this.uiService.setRobotService(this.robotService);
+            // 3. 依存関係を解決: UIService に RobotService の参照を渡す。
+            //    🚨 このメソッドがエラーの原因だったので、UIService にこのメソッドを追加します。
+            this.uiService.setRobotService(this.robotService); // 修正後、この行は正常に動作するようになります。
             
             // マップの初期化
             this.initializeMap();

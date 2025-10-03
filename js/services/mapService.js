@@ -11,6 +11,9 @@ export class MapService {
         this.userMarker = null;
         this.directionsRenderer = null;
         this.mapClickCallback = null;
+        
+        // 🚀 修正点 1: this のコンテキストを固定するためにメソッドをバインド
+        this.openInfoWindow = this.openInfoWindow.bind(this);
     }
 
     /**
@@ -33,7 +36,7 @@ export class MapService {
     }
 
     /**
-     * ロボットマーカーを作成・更新する
+     * ロボットマーカーを作成・更新する (作成と更新を兼ねる実体メソッド)
      * @param {string} docId - ドキュメントID
      * @param {Object} robot - ロボットデータ
      */
@@ -43,11 +46,16 @@ export class MapService {
             return;
         }
 
-        // 既存のマーカーがあれば削除
+        // マーカーが存在する場合、位置とアイコンを更新するロジック
         if (this.activeMarkers[docId]) {
-            this.activeMarkers[docId].map = null;
+            const marker = this.activeMarkers[docId];
+            
+            // AdvancedMarkerElementは位置の直接更新が困難なため、削除・再作成で対応
+            marker.map = null;
+            delete this.activeMarkers[docId];
         }
 
+        // マーカーの作成/再作成
         const popupHtml = this.createRobotPopupHtml(docId, robot);
         const markerColor = this.getRobotMarkerColor(robot.status);
         
@@ -59,37 +67,44 @@ export class MapService {
         });
         
         const position = { lat: robot.position.latitude, lng: robot.position.longitude };
-        const marker = createAdvancedMarker(position, pin.element, robot.id, this.map);
+        const newMarker = createAdvancedMarker(position, pin.element, robot.id, this.map);
         
         const infoWindow = createInfoWindow(popupHtml);
-        marker.addListener('click', () => this.openInfoWindow(infoWindow, marker));
+        // 🚀 修正点 2: バインドされた openInfoWindow を使用
+        newMarker.addListener('click', () => this.openInfoWindow(infoWindow, newMarker)); 
         
-        this.activeMarkers[docId] = marker;
+        this.activeMarkers[docId] = newMarker;
     }
-
+    
+    /**
+     * ロボットマーカーを更新する (robotService.js のエラー解消用エイリアス)
+     */
+    updateRobotMarker(docId, robot) {
+        this.createRobotMarker(docId, robot);
+    }
+    
     /**
      * ロボットのポップアップHTMLを生成する
-     * @param {string} docId - ドキュメントID
-     * @param {Object} robot - ロボットデータ
-     * @returns {string} HTML文字列
      */
     createRobotPopupHtml(docId, robot) {
+        const status = robot.status; 
         let popupHtml;
-        if (robot.status === 'アイドリング中') {
+        
+        if (status === 'idle') {
             popupHtml = `
                 <div class="p-1 font-sans">
                     <h3 class="font-bold text-md">${robot.id}</h3>
-                    <p class="text-gray-700">状態: ${robot.status}</p>
+                    <p class="text-gray-700">状態: ${status}</p>
                     <button onclick="handleRideButtonClick('${docId}', 'ride')" 
                             class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">
                         乗車する
                     </button>
                 </div>`;
-        } else if (robot.status === '使用中') {
+        } else if (status === 'in_use') {
             popupHtml = `
                 <div class="p-1 font-sans">
                     <h3 class="font-bold text-md">${robot.id}</h3>
-                    <p class="text-gray-700">状態: ${robot.status}</p>
+                    <p class="text-gray-700">状態: ${status}</p>
                     <p class="text-sm text-gray-500 mt-1">地図をクリックして目的地を設定</p>
                     <button onclick="handleRideButtonClick('${docId}', 'getoff')" 
                             class="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">
@@ -100,7 +115,7 @@ export class MapService {
             popupHtml = `
                 <div class="p-1 font-sans">
                     <h3 class="font-bold text-md">${robot.id}</h3>
-                    <p class="text-gray-700">状態: ${robot.status}</p>
+                    <p class="text-gray-700">状態: ${status}</p>
                 </div>`;
         }
         return popupHtml;
@@ -108,21 +123,18 @@ export class MapService {
 
     /**
      * ロボットの状態に応じたマーカー色を取得
-     * @param {string} status - ロボットの状態
-     * @returns {string} カラーコード
      */
     getRobotMarkerColor(status) {
         switch (status) {
-            case '走行中': return '#4CAF50';
-            case '使用中': return '#f59e0b';
-            case '配車中': return '#EAB308';
-            default: return '#2196F3';
+            case 'moving': return '#4CAF50';
+            case 'in_use': return '#f59e0b';
+            case 'dispatching': return '#EAB308';
+            default: return '#2196F3'; // idle
         }
     }
 
     /**
      * 乗車地点マーカーを設置する
-     * @param {google.maps.LatLng} location - 位置
      */
     placePickupMarker(location) {
         if (this.userMarker) this.userMarker.map = null;
@@ -154,8 +166,6 @@ export class MapService {
 
     /**
      * 目的地マーカーを設置する
-     * @param {google.maps.LatLng} location - 位置
-     * @param {string} robotDocId - ロボットのドキュメントID
      */
     placeDestinationMarker(location, robotDocId) {
         if (this.userMarker) this.userMarker.map = null;
@@ -190,7 +200,7 @@ export class MapService {
      * @param {google.maps.InfoWindow} infoWindow - InfoWindow
      * @param {google.maps.marker.AdvancedMarkerElement} anchor - アンカー
      */
-    openInfoWindow(infoWindow, anchor) {
+    openInfoWindow(infoWindow, anchor) { // 🚨 このメソッドは constructor でバインドされています
         if (this.activeInfoWindow) this.activeInfoWindow.close();
         infoWindow.open(this.map, anchor);
         this.activeInfoWindow = infoWindow;
@@ -198,9 +208,6 @@ export class MapService {
 
     /**
      * 経路を表示する
-     * @param {Object} origin - 出発地点
-     * @param {Object} destination - 目的地
-     * @param {Function} onRouteCalculated - 経路計算完了時のコールバック
      */
     displayRoute(origin, destination, onRouteCalculated) {
         if (this.directionsRenderer) this.directionsRenderer.setMap(null);
@@ -233,7 +240,6 @@ export class MapService {
 
     /**
      * マーカーを削除する
-     * @param {string} docId - ドキュメントID
      */
     removeMarker(docId) {
         if (this.activeMarkers[docId]) {
