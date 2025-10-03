@@ -2,6 +2,7 @@ import { initializeAuth } from './config/firebase.js';
 import { MapService } from './services/mapService.js';
 import { RobotService } from './services/robotService.js';
 import { UIService } from './services/uiService.js';
+import { SensorDashboard } from './services/sensorDashboard.js'; // 🚀 1. SensorDashboard をインポート
 
 /**
  * メインアプリケーションクラス
@@ -11,6 +12,7 @@ class MobilityApp {
         this.mapService = null;
         this.robotService = null;
         this.uiService = null;
+        this.sensorDashboard = null; // 🚀 プロパティに追加
         this.isInitialized = false;
     }
 
@@ -26,8 +28,19 @@ class MobilityApp {
             
             // サービス初期化
             this.mapService = new MapService();
-            this.robotService = new RobotService(this.mapService);
+            // 🚀 2. SensorDashboard をインスタンス化
+            this.sensorDashboard = new SensorDashboard(this.mapService); 
+            
+            // 3. UIService は RobotService の前に初期化が必要な場合があるため、一旦この順序を維持
             this.uiService = new UIService(this.robotService, this.mapService);
+            
+            // 🚀 4. RobotService の初期化時に SensorDashboard を渡す
+            //    RobotService が UIService に依存している場合があるため、引数の順序を確認してください。
+            //    ここでは、(MapService, UIService, SensorDashboard) の順で引数を渡すことを想定します。
+            this.robotService = new RobotService(this.mapService, this.uiService, this.sensorDashboard);
+
+            // 依存関係を解決: RobotService が UIService より後にインスタンス化されたため、UIService の RobotService への参照を更新
+            this.uiService.setRobotService(this.robotService);
             
             // マップの初期化
             this.initializeMap();
@@ -108,7 +121,8 @@ class MobilityApp {
             services: {
                 mapService: !!this.mapService,
                 robotService: !!this.robotService,
-                uiService: !!this.uiService
+                uiService: !!this.uiService,
+                sensorDashboard: !!this.sensorDashboard // 🚀 ダッシュボードの状態を追加
             },
             activeMarkers: this.mapService ? Object.keys(this.mapService.activeMarkers).length : 0,
             activeSimulations: this.robotService ? Object.keys(this.robotService.activeSimulations).length : 0,
@@ -129,6 +143,11 @@ class MobilityApp {
         
         if (this.uiService) {
             this.uiService.cleanup();
+        }
+
+        // 🚀 ダッシュボードのクリーンアップを追加
+        if (this.sensorDashboard) {
+            this.sensorDashboard.cleanup();
         }
         
         this.isInitialized = false;
