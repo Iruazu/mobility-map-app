@@ -1,7 +1,7 @@
 import { createSvgIcon, createAdvancedMarker, createInfoWindow } from '../utils/geoUtils.js';
 
 /**
- * 地図とマーカー管理サービス（マーカー更新最適化版）
+ * 地図とマーカー管理サービス（完全修正版）
  */
 export class MapService {
     constructor() {
@@ -12,7 +12,7 @@ export class MapService {
         this.directionsRenderer = null;
         this.mapClickCallback = null;
         
-        // 🚨 マーカー位置のキャッシュ（不要な再作成を防ぐ）
+        // マーカー位置のキャッシュ
         this.lastMarkerPositions = {};
         
         this.openInfoWindow = this.openInfoWindow.bind(this);
@@ -36,8 +36,7 @@ export class MapService {
     }
 
     /**
-     * ロボットマーカーを作成・更新する
-     * 🚨 位置変更時のみマーカーを再作成するよう最適化
+     * ロボットマーカーを作成・更新する（完全修正版）
      */
     createRobotMarker(docId, robot) {
         if (!robot.position?.latitude || !robot.position?.longitude) {
@@ -50,17 +49,19 @@ export class MapService {
             lng: robot.position.longitude 
         };
 
-        // 🚨 位置が変わっていなければ、ステータス表示のみ更新
-        if (this.activeMarkers[docId] && this.hasMarkerMoved(docId, newPosition)) {
-            // 位置が変わった場合のみマーカーを再作成
+        // マーカーが既に存在する場合
+        if (this.activeMarkers[docId]) {
+            // 位置が変わっていない場合はスキップ
+            if (!this.hasMarkerMoved(docId, newPosition)) {
+                console.debug(`⏸️ ${robot.id}: 位置変更なし、マーカー更新スキップ`);
+                return;
+            }
+            
+            // 位置が変わった場合のみマーカーを削除して再作成
+            console.log(`🔄 ${robot.id}: マーカー位置更新`);
             const marker = this.activeMarkers[docId];
             marker.map = null;
             delete this.activeMarkers[docId];
-            console.log(`🔄 ${robot.id}: マーカー位置更新`);
-        } else if (this.activeMarkers[docId]) {
-            // 位置が変わっていない場合、何もしない
-            console.debug(`⏸️ ${robot.id}: 位置変更なし、マーカー更新スキップ`);
-            return;
         }
 
         // マーカーの作成
@@ -80,14 +81,11 @@ export class MapService {
         newMarker.addListener('click', () => this.openInfoWindow(infoWindow, newMarker)); 
         
         this.activeMarkers[docId] = newMarker;
-        this.lastMarkerPositions[docId] = newPosition;  // 🚨 位置をキャッシュ
+        this.lastMarkerPositions[docId] = newPosition;
     }
 
     /**
      * マーカーが移動したかチェック
-     * @param {string} docId - ドキュメントID
-     * @param {Object} newPosition - 新しい位置 {lat, lng}
-     * @returns {boolean} 移動したかどうか
      */
     hasMarkerMoved(docId, newPosition) {
         const lastPosition = this.lastMarkerPositions[docId];
@@ -165,10 +163,10 @@ export class MapService {
      */
     getRobotMarkerColor(status) {
         switch (status) {
-            case 'moving': return '#4CAF50';        // 緑
-            case 'in_use': return '#f59e0b';        // オレンジ
-            case 'dispatching': return '#8b5cf6';   // 紫
-            default: return '#2196F3';              // 青 (idle)
+            case 'moving': return '#4CAF50';
+            case 'in_use': return '#f59e0b';
+            case 'dispatching': return '#8b5cf6';
+            default: return '#2196F3';
         }
     }
 
@@ -282,7 +280,7 @@ export class MapService {
         if (this.activeMarkers[docId]) {
             this.activeMarkers[docId].map = null;
             delete this.activeMarkers[docId];
-            delete this.lastMarkerPositions[docId];  // 🚨 キャッシュも削除
+            delete this.lastMarkerPositions[docId];
         }
     }
 
