@@ -2,176 +2,309 @@ import { db, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, 
 import { getDistance } from '../utils/geoUtils.js';
 
 /**
- * ロボット制御サービス
+ * ROS2統合版ロボット制御サービス
+ * - Web側はFirebaseへの指示とマーカー表示のみ
+ * - 実際の移動制御はROS2側が担当
  */
 export class RobotService {
-    // 1. 🚀 コンストラクターに UIService と SensorDashboard を追加
     constructor(mapService, uiService, sensorDashboard) { 
         this.mapService = mapService;
-        this.uiService = uiService; // UIServiceは通知などに利用可能
-        this.sensorDashboard = sensorDashboard; // ダッシュボード連携用
-        this.activeSimulations = {};
+        this.uiService = uiService;
+        this.sensorDashboard = sensorDashboard;
+        
+        // ステータス定義（ROS2と完全一致）
+        this.STATUS = {
+            IDLE: 'idle',
+            IN_USE: 'in_use',
+            MOVING: 'moving',
+            DISPATCHING: 'dispatching'
+        };
     }
 
     /**
-     * Firestoreのリアルタイム更新を開始する
+     * Firestoreのリアルタイム更新を開始
      */
     startRealtimeUpdates() {
         const robotsCol = collection(db, 'robots');
+        
         onSnapshot(robotsCol, (snapshot) => {
-            console.log("データベースが更新されました！");
+            console.log(`📡 Firestore更新検知: ${snapshot.docChanges().length}件`);
+            
             snapshot.docChanges().forEach((change) => {
                 const docId = change.doc.id;
                 const robot = change.doc.data();
 
                 if (change.type === "added" || change.type === "modified") {
-                    // 地図マーカーとステータスの更新
-                    // 🚨 updateRobotMarker は MapService に存在することを確認済み
+                    // マーカー更新
                     this.mapService.updateRobotMarker(docId, robot);
                     
-                    // センサーダッシュボードを更新
-                    this.sensorDashboard.updateRobotSensors(docId, robot);
-
+                    // センサーダッシュボード更新
+                    if (this.sensorDashboard) {
+                        this.sensorDashboard.updateRobotSensors(docId, robot);
+                    }
+                    
+                    // ステータス変化をログ
+                    console.log(`🤖 ${robot.id}: ${robot.status}`);
+                    
                 } else if (change.type === "removed") {
                     this.mapService.removeMarker(docId);
-                    this.sensorDashboard.removeRobotPanel(docId);
+                    if (this.sensorDashboard) {
+                        this.sensorDashboard.removeRobotPanel(docId);
+                    }
                 }
             });
         }, (error) => {
-            console.error("リアルタイム更新エラー:", error);
-            this.uiService.showNotification("データベース接続に問題があります。", "error");
+            console.error("❌ リアルタイム更新エラー:", error);
+            if (this.uiService) {
+                this.uiService.showNotification("データベース接続に問題があります", "error");
+            }
         });
     }
 
     /**
      * ロボットの乗車/降車処理
+     * @param {string} docId - ロボットのドキュメントID
+     * @param {string} action - 'ride' または 'getoff'
      */
     async handleRideAction(docId, action) {
         try {
             const robotDocRef = doc(db, "robots", docId);
-            const statusUpdate = action === 'ride' ? 'in_use' : 'idle'; 
+            const newStatus = action === 'ride' ? this.STATUS.IN_USE : this.STATUS.IDLE;
             
-            await updateDoc(robotDocRef, { status: statusUpdate });
+            await updateDoc(robotDocRef, { 
+                status: newStatus,
+                last_updated: new Date().toISOString()
+            });
             
             if (action === 'ride') {
                 this.mapService.removeUserMarker();
-                this.uiService.showNotification(`ロボット ${docId} に乗車しました`, "success");
+                this.uiService?.showNotification(`ロボット ${docId} に乗車しました`, "success");
             } else {
-                this.uiService.showNotification(`ロボット ${docId} から降車しました`, "success");
+                this.mapService.clearRoute();
+                this.uiService?.showNotification(`ロボット ${docId} から降車しました`, "success");
             }
             
+            // InfoWindowを閉じる
             if (this.mapService.activeInfoWindow) {
                 this.mapService.activeInfoWindow.close();
             }
+            
         } catch (error) {
-            console.error("乗車/降車処理エラー:", error);
-            this.uiService.showNotification("操作に失敗しました。", "error");
+            console.error("❌ 乗車/降車処理エラー:", error);
+            this.uiService?.showNotification("操作に失敗しました", "error");
         }
     }
 
     /**
-     * ロボット配車処理 (目的地をFirebaseに書き込む)
+     * ロボット配車処理（ROS2に目的地を指示）
+     * @param {number} lat - 緯度
+     * @param {number} lng - 経度
      */
     async callRobot(lat, lng) {
         try {
-            console.log(`配車リクエスト発生！ 場所: (${lat}, ${lng})`);
+            console.log(`🚕 配車リクエスト: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
             
+            // アイドル状態のロボットを検索
             const robotsCol = collection(db, 'robots');
             const robotSnapshot = await getDocs(robotsCol);
+            
             let closestRobot = null;
             let minDistance = Infinity;
 
-            robotSnapshot.forEach((doc) => {
-                const robot = doc.data();
-                if (robot.status === 'idle') { 
-                    // 🚨 GeoPointから緯度経度を取得するロジックは既に修正済みと仮定
+            robotSnapshot.forEach((robotDoc) => {
+                const robot = robotDoc.data();
+                
+                // ステータスチェック（厳密な一致）
+                if (robot.status === this.STATUS.IDLE) {
+                    const robotPos = robot.position;
+                    
+                    if (!robotPos?.latitude || !robotPos?.longitude) {
+                        console.warn(`⚠️ ロボット ${robot.id} の位置情報が不正`);
+                        return;
+                    }
+                    
                     const distance = getDistance(
                         { lat, lng },
-                        { lat: robot.position.latitude, lng: robot.position.longitude }
+                        { lat: robotPos.latitude, lng: robotPos.longitude }
                     );
+                    
                     if (distance < minDistance) {
                         minDistance = distance;
-                        closestRobot = { docId: doc.id, data: robot };
+                        closestRobot = { 
+                            docId: robotDoc.id, 
+                            data: robot,
+                            distance: distance 
+                        };
                     }
                 }
             });
 
             if (!closestRobot) {
-                this.uiService.showNotification("現在、利用可能なロボットがいません。", "warning");
+                this.uiService?.showNotification("現在、利用可能なロボットがいません", "warning");
                 return;
             }
             
-            this.uiService.showNotification(`最も近いロボット ${closestRobot.data.id} が配車されます`, "info");
+            console.log(`✅ 最寄りロボット: ${closestRobot.data.id} (${closestRobot.distance.toFixed(2)}km)`);
             
+            // Firebaseに目的地を書き込み（ROS2が読み取る）
             const robotDocRef = doc(db, "robots", closestRobot.docId);
             await updateDoc(robotDocRef, {
-                status: 'dispatching', // 英語ステータス
-                destination: new GeoPoint(lat, lng)
+                status: this.STATUS.DISPATCHING,
+                destination: new GeoPoint(lat, lng),
+                last_updated: new Date().toISOString()
             });
 
+            this.uiService?.showNotification(
+                `ロボット ${closestRobot.data.id} を配車しました`, 
+                "success"
+            );
+            
+            // 経路表示（視覚的フィードバックのみ）
+            this.mapService.displayRoute(
+                closestRobot.data.position, 
+                { lat, lng },
+                () => {
+                    console.log('📍 経路表示完了');
+                }
+            );
+            
         } catch (error) {
-            console.error("配車処理エラー:", error);
-            this.uiService.showNotification("配車リクエストに失敗しました。", "error");
+            console.error("❌ 配車処理エラー:", error);
+            this.uiService?.showNotification("配車リクエストに失敗しました", "error");
         }
     }
 
     /**
-     * 目的地設定処理 (Firebaseに書き込む)
+     * 目的地設定処理（ROS2に移動指示）
+     * @param {string} robotDocId - ロボットのドキュメントID
+     * @param {number} lat - 緯度
+     * @param {number} lng - 経度
      */
     async setDestination(robotDocId, lat, lng) {
         try {
-            console.log(`目的地設定！ ロボットID: ${robotDocId}, 場所: (${lat}, ${lng})`);
+            console.log(`🎯 目的地設定: ${robotDocId} → (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
             
             const robotDocRef = doc(db, "robots", robotDocId);
             const robotDoc = await getDoc(robotDocRef);
+            
             if (!robotDoc.exists()) {
-                this.uiService.showNotification("ロボットが見つかりません。", "error");
+                this.uiService?.showNotification("ロボットが見つかりません", "error");
                 return;
             }
 
-            const currentPosition = robotDoc.data().position;
+            const robotData = robotDoc.data();
+            
+            // ステータスチェック
+            if (robotData.status !== this.STATUS.IN_USE) {
+                this.uiService?.showNotification("このロボットは使用できません", "warning");
+                return;
+            }
+
+            const currentPosition = robotData.position;
             const destination = { lat, lng };
 
+            // Firebaseに目的地を書き込み（ROS2が実際に移動）
             await updateDoc(robotDocRef, {
-                status: 'moving', // 英語ステータス
-                destination: new GeoPoint(destination.lat, destination.lng)
+                status: this.STATUS.MOVING,
+                destination: new GeoPoint(destination.lat, destination.lng),
+                last_updated: new Date().toISOString()
             });
 
-            // 経路表示のみWeb側で行う（シミュレーションはROS2側が実施）
+            this.uiService?.showNotification(
+                `目的地を設定しました。ロボットが移動を開始します`, 
+                "success"
+            );
+            
+            // 経路表示（視覚的フィードバック）
             this.mapService.displayRoute(currentPosition, destination, () => {
-                this.uiService.showNotification(`ロボット ${robotDocId} の移動を開始します`, "info");
+                console.log('📍 経路表示完了');
             });
             
         } catch (error) {
-            console.error("目的地設定エラー:", error);
-            this.uiService.showNotification("目的地の設定に失敗しました。", "error");
+            console.error("❌ 目的地設定エラー:", error);
+            this.uiService?.showNotification("目的地の設定に失敗しました", "error");
         }
     }
 
     /**
-     * 使用中のロボットを取得 (uiServiceからの呼び出しに対応)
-     * @returns {Promise<Object|null>} 使用中のロボットまたはnull
+     * 使用中のロボットを取得
+     * @returns {Promise<Object|null>}
      */
     async getInUseRobot() {
         try {
             const robotsCol = collection(db, 'robots');
             const robotSnapshot = await getDocs(robotsCol);
             
-            // 🚨 ステータスは Web と ROS2 で統一した 'in_use' を使用
-            const inUseRobotDoc = robotSnapshot.docs.find(doc => doc.data().status === 'in_use'); 
+            const inUseRobotDoc = robotSnapshot.docs.find(
+                robotDoc => robotDoc.data().status === this.STATUS.IN_USE
+            );
             
-            return inUseRobotDoc ? { id: inUseRobotDoc.id, data: inUseRobotDoc.data() } : null;
+            if (inUseRobotDoc) {
+                return { 
+                    id: inUseRobotDoc.id, 
+                    data: inUseRobotDoc.data() 
+                };
+            }
+            
+            return null;
+            
         } catch (error) {
-            console.error("使用中ロボット取得エラー:", error);
+            console.error("❌ 使用中ロボット取得エラー:", error);
             return null;
         }
     }
 
     /**
-     * 既存のメソッドを簡素化し、ROS2移行後のクリーンアップに対応
+     * ロボットの詳細情報を取得
+     * @param {string} robotId - ロボットID
+     * @returns {Promise<Object|null>}
      */
-    stopAllSimulations() {
-        // ROS2制御後は、タイマーベースのシミュレーションはないため、空またはログのみ
-        console.log("Web側のシミュレーションは無効化されています。");
+    async getRobotDetails(robotId) {
+        try {
+            const robotDocRef = doc(db, "robots", robotId);
+            const robotDoc = await getDoc(robotDocRef);
+            
+            if (robotDoc.exists()) {
+                return { id: robotDoc.id, data: robotDoc.data() };
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error(`❌ ロボット ${robotId} 詳細取得エラー:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 緊急停止処理
+     * @param {string} robotId - ロボットID
+     */
+    async emergencyStop(robotId) {
+        try {
+            console.warn(`🛑 緊急停止: ${robotId}`);
+            
+            const robotDocRef = doc(db, "robots", robotId);
+            await updateDoc(robotDocRef, {
+                status: this.STATUS.IDLE,
+                destination: deleteField(),
+                last_updated: new Date().toISOString()
+            });
+            
+            this.mapService.clearRoute();
+            this.uiService?.showNotification(`ロボット ${robotId} を停止しました`, "warning");
+            
+        } catch (error) {
+            console.error("❌ 緊急停止エラー:", error);
+            this.uiService?.showNotification("停止処理に失敗しました", "error");
+        }
+    }
+
+    /**
+     * クリーンアップ（Web側のシミュレーション関連は不要）
+     */
+    cleanup() {
+        console.log("🧹 RobotService クリーンアップ完了");
+        // ROS2統合版では特に処理なし
     }
 }

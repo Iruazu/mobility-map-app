@@ -1,64 +1,101 @@
 /**
- * UI制御サービス
+ * UI制御サービス（改善版）
+ * ROS2統合対応、通知システム強化
  */
 export class UIService {
-    // 🚀 constructor は、main.js からの呼び出し順序に合わせて robotService を受け取る
     constructor(robotService, mapService) {
-        this.robotService = robotService; // 初期化時は null の可能性がある
+        this.robotService = robotService; // 初期化時はnullの可能性あり
         this.mapService = mapService;
+        this.notificationQueue = [];
+        this.isProcessingQueue = false;
+        
         this.setupGlobalHandlers();
+        this.initializeNotificationSystem();
     }
 
     /**
-     * 後から RobotService の参照を設定する (main.js の初期化順序の問題を解決)
-     * @param {RobotService} robotService - RobotService のインスタンス
+     * RobotServiceの参照を後から設定（main.jsの初期化順序問題を解決）
+     * @param {RobotService} robotService
      */
     setRobotService(robotService) {
-        // 🚨 main.js の TypeError を解消するために必須のメソッド
         this.robotService = robotService;
-        console.log("UIService: RobotService の参照を解決しました。");
+        console.log("✅ UIService: RobotServiceの参照を解決しました");
+    }
+
+    /**
+     * 通知システムを初期化
+     */
+    initializeNotificationSystem() {
+        // 通知コンテナを作成
+        if (!document.getElementById('notification-container')) {
+            const container = document.createElement('div');
+            container.id = 'notification-container';
+            container.className = 'fixed top-4 right-4 z-50 space-y-2';
+            document.body.appendChild(container);
+        }
     }
 
     /**
      * グローバル関数ハンドラーを設定
      */
     setupGlobalHandlers() {
-        // グローバル関数として公開（HTMLのonclickから呼び出されるため）
+        // HTMLのonclickから呼び出されるグローバル関数
         window.handleRideButtonClick = (docId, action) => {
-            // 🚨 this.robotService が null の場合があるためチェック
             if (this.robotService) {
                 this.handleRideButtonClick(docId, action);
+            } else {
+                console.error("❌ RobotServiceが初期化されていません");
+                this.showNotification("システムが初期化中です。しばらくお待ちください。", "warning");
             }
         };
 
         window.handleCallRobotClick = (lat, lng) => {
-             if (this.robotService) {
+            if (this.robotService) {
                 this.handleCallRobotClick(lat, lng);
+            } else {
+                console.error("❌ RobotServiceが初期化されていません");
+                this.showNotification("システムが初期化中です。しばらくお待ちください。", "warning");
             }
         };
 
         window.handleSetDestinationClick = (robotDocId, lat, lng) => {
-             if (this.robotService) {
+            if (this.robotService) {
                 this.handleSetDestinationClick(robotDocId, lat, lng);
+            } else {
+                console.error("❌ RobotServiceが初期化されていません");
+                this.showNotification("システムが初期化中です。しばらくお待ちください。", "warning");
             }
         };
+
+        console.log("✅ グローバルハンドラーを設定しました");
     }
 
     /**
      * 乗車/降車ボタンクリック処理
      * @param {string} docId - ドキュメントID
-     * @param {string} action - アクション
+     * @param {string} action - 'ride' または 'getoff'
      */
     async handleRideButtonClick(docId, action) {
         try {
+            console.log(`🎫 ${action === 'ride' ? '乗車' : '降車'}処理開始: ${docId}`);
+            
             await this.robotService.handleRideAction(docId, action);
             
-            // 成功メッセージを表示
-            const message = action === 'ride' ? '乗車しました。地図をクリックして目的地を設定してください。' : '降車しました。';
-            this.showSuccessMessage(message);
+            // 処理成功後の追加メッセージ
+            if (action === 'ride') {
+                // 乗車時のガイダンス
+                setTimeout(() => {
+                    this.showNotification(
+                        "地図をクリックして目的地を設定してください", 
+                        "info", 
+                        3000
+                    );
+                }, 1000);
+            }
+            
         } catch (error) {
-            console.error('乗車/降車処理エラー:', error);
-            this.showErrorMessage('操作に失敗しました。再度お試しください。');
+            console.error("❌ 乗車/降車処理エラー:", error);
+            this.showNotification("操作に失敗しました。再度お試しください。", "error");
         }
     }
 
@@ -69,14 +106,19 @@ export class UIService {
      */
     async handleCallRobotClick(lat, lng) {
         try {
-            this.showLoadingMessage('ロボットを呼んでいます...');
+            console.log(`📞 ロボット呼び出し: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+            
+            // ローディング表示
+            const loadingId = this.showNotification('ロボットを呼んでいます...', "loading");
+            
             await this.robotService.callRobot(lat, lng);
-            this.hideLoadingMessage();
-            // 成功メッセージは RobotService 内で処理されるか、ROS2からのフィードバックを待つべきですが、ここでは簡略化
+            
+            // ローディング削除
+            this.removeNotification(loadingId);
+            
         } catch (error) {
-            console.error('配車処理エラー:', error);
-            this.hideLoadingMessage();
-            this.showErrorMessage('配車リクエストに失敗しました。再度お試しください。');
+            console.error("❌ 配車処理エラー:", error);
+            this.showNotification("配車リクエストに失敗しました。", "error");
         }
     }
 
@@ -88,14 +130,19 @@ export class UIService {
      */
     async handleSetDestinationClick(robotDocId, lat, lng) {
         try {
-            this.showLoadingMessage('経路を計算しています...');
+            console.log(`🎯 目的地設定: ${robotDocId} → (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+            
+            // ローディング表示
+            const loadingId = this.showNotification('経路を計算しています...', "loading");
+            
             await this.robotService.setDestination(robotDocId, lat, lng);
-            this.hideLoadingMessage();
-            this.showSuccessMessage('目的地を設定しました。ロボットが向かっています。');
+            
+            // ローディング削除
+            this.removeNotification(loadingId);
+            
         } catch (error) {
-            console.error('目的地設定エラー:', error);
-            this.hideLoadingMessage();
-            this.showErrorMessage('目的地の設定に失敗しました。再度お試しください。');
+            console.error("❌ 目的地設定エラー:", error);
+            this.showNotification("目的地の設定に失敗しました。", "error");
         }
     }
 
@@ -106,143 +153,217 @@ export class UIService {
     async handleMapClick(location) {
         try {
             if (!this.robotService) {
-                 this.showErrorMessage('アプリケーションの初期化が完了していません。');
-                 return;
+                this.showNotification("システムが初期化中です。しばらくお待ちください。", "warning");
+                return;
             }
-            // 現在「使用中」のロボットがいるか確認
+
+            // 使用中のロボットを確認
             const inUseRobot = await this.robotService.getInUseRobot();
 
             if (inUseRobot) {
-                // 「使用中」のロボットがいる場合 -> 目的地を設定する
-                console.log("目的地設定モードです。");
+                // 使用中のロボットがいる場合 → 目的地設定モード
+                console.log("📍 目的地設定モード");
                 this.mapService.placeDestinationMarker(location, inUseRobot.id);
             } else {
-                // 「使用中」のロボットがいない場合 -> ロボットを呼ぶ
-                console.log("配車リクエストモードです。");
+                // 使用中のロボットがいない場合 → 配車リクエストモード
+                console.log("📍 配車リクエストモード");
                 this.mapService.placePickupMarker(location);
             }
+            
         } catch (error) {
-            console.error('地図クリック処理エラー:', error);
-            this.showErrorMessage('操作に失敗しました。再度お試しください。');
+            console.error("❌ 地図クリック処理エラー:", error);
+            this.showNotification("操作に失敗しました。", "error");
         }
     }
 
     /**
-     * 成功メッセージを表示
+     * 通知を表示（改善版）
      * @param {string} message - メッセージ
+     * @param {string} type - タイプ ('success', 'error', 'warning', 'info', 'loading')
+     * @param {number} duration - 表示時間（ミリ秒、0で自動削除なし）
+     * @returns {string} 通知ID
      */
-    showSuccessMessage(message) {
-        this.showToast(message, 'success');
-    }
+    showNotification(message, type = 'info', duration = 3000) {
+        const container = document.getElementById('notification-container');
+        if (!container) {
+            console.error("❌ 通知コンテナが見つかりません");
+            return null;
+        }
 
-    /**
-     * エラーメッセージを表示
-     * @param {string} message - メッセージ
-     */
-    showErrorMessage(message) {
-        this.showToast(message, 'error');
-    }
-
-    /**
-     * ローディングメッセージを表示
-     * @param {string} message - メッセージ
-     */
-    showLoadingMessage(message) {
-        this.removeExistingToast();
-        const toast = this.createToast(message, 'loading');
-        document.body.appendChild(toast);
-    }
-
-    /**
-     * ローディングメッセージを非表示
-     */
-    hideLoadingMessage() {
-        this.removeExistingToast();
-    }
-
-    /**
-     * トーストメッセージを表示
-     * @param {string} message - メッセージ
-     * @param {string} type - タイプ ('success', 'error', 'loading')
-     */
-    showToast(message, type = 'info') {
-        this.removeExistingToast();
+        // 通知要素を作成
+        const notificationId = `notification-${Date.now()}-${Math.random()}`;
+        const notification = this.createNotificationElement(message, type, notificationId);
         
-        const toast = this.createToast(message, type);
-        document.body.appendChild(toast);
+        container.appendChild(notification);
 
-        // 自動削除（ローディング以外）
-        if (type !== 'loading') {
+        // フェードイン効果
+        setTimeout(() => {
+            notification.classList.add('notification-show');
+        }, 10);
+
+        // 自動削除（loadingタイプとduration=0は除く）
+        if (type !== 'loading' && duration > 0) {
             setTimeout(() => {
-                this.removeExistingToast();
-            }, 3000);
+                this.removeNotification(notificationId);
+            }, duration);
         }
+
+        return notificationId;
     }
 
     /**
-     * トースト要素を作成
+     * 通知要素を作成
      * @param {string} message - メッセージ
      * @param {string} type - タイプ
-     * @returns {HTMLElement} トースト要素
+     * @param {string} id - 通知ID
+     * @returns {HTMLElement} 通知要素
      */
-    createToast(message, type) {
-        const toast = document.createElement('div');
-        toast.id = 'mobility-toast';
+    createNotificationElement(message, type, id) {
+        const notification = document.createElement('div');
+        notification.id = id;
+        notification.className = 'notification';
         
-        const baseClasses = 'fixed top-4 right-4 px-4 py-2 rounded-md shadow-lg z-50 transition-opacity duration-300';
-        let typeClasses = '';
+        // タイプに応じたスタイル
+        const styles = {
+            success: 'bg-green-500 text-white',
+            error: 'bg-red-500 text-white',
+            warning: 'bg-yellow-500 text-white',
+            info: 'bg-blue-500 text-white',
+            loading: 'bg-gray-700 text-white'
+        };
         
-        switch (type) {
-            case 'success':
-                typeClasses = 'bg-green-500 text-white';
-                break;
-            case 'error':
-                typeClasses = 'bg-red-500 text-white';
-                break;
-            case 'loading':
-                typeClasses = 'bg-blue-500 text-white';
-                message = `⏳ ${message}`;
-                break;
-            default:
-                typeClasses = 'bg-gray-500 text-white';
+        // アイコン
+        const icons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️',
+            loading: '⏳'
+        };
+        
+        const styleClass = styles[type] || styles.info;
+        const icon = icons[type] || icons.info;
+        
+        notification.className = `notification px-4 py-3 rounded-lg shadow-lg ${styleClass} flex items-center gap-2 min-w-[250px] max-w-[400px] transform transition-all duration-300 opacity-0 translate-x-full`;
+        
+        notification.innerHTML = `
+            <span class="text-lg">${icon}</span>
+            <span class="flex-1">${message}</span>
+            ${type !== 'loading' ? '<button class="notification-close ml-2 text-white hover:text-gray-200">×</button>' : ''}
+        `;
+        
+        // 閉じるボタンのイベント
+        const closeBtn = notification.querySelector('.notification-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                this.removeNotification(id);
+            });
         }
         
-        toast.className = `${baseClasses} ${typeClasses}`;
-        toast.textContent = message;
-        
-        return toast;
+        return notification;
     }
 
     /**
-     * 既存のトーストを削除
+     * 通知を削除
+     * @param {string} notificationId - 通知ID
      */
-    removeExistingToast() {
-        const existingToast = document.getElementById('mobility-toast');
-        if (existingToast) {
-            existingToast.remove();
-        }
+    removeNotification(notificationId) {
+        const notification = document.getElementById(notificationId);
+        if (!notification) return;
+        
+        // フェードアウト効果
+        notification.classList.remove('notification-show');
+        notification.classList.add('opacity-0', 'translate-x-full');
+        
+        // DOM から削除
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
     }
 
     /**
-     * アプリケーション終了時のクリーンアップ
+     * すべての通知を削除
      */
-    cleanup() {
-        this.removeExistingToast();
-        
-        // グローバル関数を削除
-        delete window.handleRideButtonClick;
-        delete window.handleCallRobotClick;
-        delete window.handleSetDestinationClick;
+    clearAllNotifications() {
+        const container = document.getElementById('notification-container');
+        if (container) {
+            container.innerHTML = '';
+        }
     }
 
     /**
      * デバッグ情報を表示
      */
     showDebugInfo() {
-        console.log('=== Mobility App Debug Info ===');
-        console.log('Active Markers:', Object.keys(this.mapService.activeMarkers).length);
-        console.log('Active Simulations:', Object.keys(this.robotService.activeSimulations).length);
-        console.log('User Marker:', this.mapService.userMarker ? 'Present' : 'None');
+        console.log('=== UIService Debug Info ===');
+        console.log('RobotService:', this.robotService ? '✅ Connected' : '❌ Not Connected');
+        console.log('MapService:', this.mapService ? '✅ Connected' : '❌ Not Connected');
+        console.log('Active Markers:', this.mapService ? Object.keys(this.mapService.activeMarkers).length : 0);
+        console.log('User Marker:', this.mapService?.userMarker ? '✅ Present' : '❌ None');
+        console.log('Map Initialized:', this.mapService?.map ? '✅ Yes' : '❌ No');
         console.log('=== End Debug Info ===');
+    }
+
+    /**
+     * システムステータスを画面に表示（デバッグ用）
+     */
+    showSystemStatus() {
+        const status = {
+            robotService: !!this.robotService,
+            mapService: !!this.mapService,
+            activeMarkers: this.mapService ? Object.keys(this.mapService.activeMarkers).length : 0,
+            userMarker: this.mapService?.userMarker ? 'Present' : 'None',
+            mapInitialized: this.mapService?.map ? 'Yes' : 'No'
+        };
+        
+        const statusHtml = `
+            <div style="position: fixed; bottom: 10px; left: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; z-index: 9999;">
+                <strong>System Status</strong><br>
+                RobotService: ${status.robotService ? '✅' : '❌'}<br>
+                MapService: ${status.mapService ? '✅' : '❌'}<br>
+                Active Markers: ${status.activeMarkers}<br>
+                User Marker: ${status.userMarker}<br>
+                Map: ${status.mapInitialized}
+            </div>
+        `;
+        
+        let statusDiv = document.getElementById('system-status-display');
+        if (!statusDiv) {
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'system-status-display';
+            document.body.appendChild(statusDiv);
+        }
+        statusDiv.innerHTML = statusHtml;
+        
+        // 5秒後に自動削除
+        setTimeout(() => {
+            const div = document.getElementById('system-status-display');
+            if (div) div.remove();
+        }, 5000);
+    }
+
+    /**
+     * クリーンアップ処理
+     */
+    cleanup() {
+        console.log("🧹 UIService クリーンアップ中...");
+        
+        // 通知をクリア
+        this.clearAllNotifications();
+        
+        // 通知コンテナを削除
+        const container = document.getElementById('notification-container');
+        if (container) {
+            container.remove();
+        }
+        
+        // グローバル関数を削除
+        delete window.handleRideButtonClick;
+        delete window.handleCallRobotClick;
+        delete window.handleSetDestinationClick;
+        
+        console.log("✅ UIService クリーンアップ完了");
     }
 }
