@@ -1,7 +1,9 @@
 import { createSvgIcon, createAdvancedMarker, createInfoWindow } from '../utils/geoUtils.js';
 
 /**
- * 地図とマーカー管理サービス（完全修正版）
+ * 地図とマーカー管理サービス（完全版）
+ * - 経路表示機能を削除（ROS2のNav2が実際の経路を計算）
+ * - マーカー位置同期最適化
  */
 export class MapService {
     constructor() {
@@ -9,7 +11,6 @@ export class MapService {
         this.activeMarkers = {};
         this.activeInfoWindow = null;
         this.userMarker = null;
-        this.directionsRenderer = null;
         this.mapClickCallback = null;
         
         // マーカー位置のキャッシュ
@@ -22,7 +23,7 @@ export class MapService {
      * 地図を初期化する
      */
     initializeMap(elementId, onMapClick) {
-        const initialLocation = { lat: 36.5598, lng: 139.9088 };
+        const initialLocation = { lat: 36.55077, lng: 139.92957 };
         this.map = new google.maps.Map(document.getElementById(elementId), {
             center: initialLocation,
             zoom: 17,
@@ -33,14 +34,16 @@ export class MapService {
         this.map.addListener('click', (event) => {
             this.mapClickCallback(event.latLng);
         });
+        
+        console.log('🗺️ Google Maps初期化完了');
     }
 
     /**
-     * ロボットマーカーを作成・更新する（完全修正版）
+     * ロボットマーカーを作成・更新する
      */
     createRobotMarker(docId, robot) {
         if (!robot.position?.latitude || !robot.position?.longitude) {
-            console.warn(`ロボット ${robot.id} の位置情報が不正です`);
+            console.warn(`⚠️ ロボット ${robot.id} の位置情報が不正です`);
             return;
         }
 
@@ -53,7 +56,6 @@ export class MapService {
         if (this.activeMarkers[docId]) {
             // 位置が変わっていない場合はスキップ
             if (!this.hasMarkerMoved(docId, newPosition)) {
-                console.debug(`⏸️ ${robot.id}: 位置変更なし、マーカー更新スキップ`);
                 return;
             }
             
@@ -139,7 +141,7 @@ export class MapService {
                 <div class="p-1 font-sans">
                     <h3 class="font-bold text-md">${robot.id}</h3>
                     <p class="text-gray-700">状態: 🚀 走行中</p>
-                    <p class="text-sm text-gray-500 mt-1">目的地へ移動しています</p>
+                    <p class="text-sm text-gray-500 mt-1">ROS2が最適経路で移動中</p>
                 </div>`;
         } else if (status === 'dispatching') {
             popupHtml = `
@@ -221,6 +223,7 @@ export class MapService {
             <div class="p-1 font-sans">
                 <h3 class="font-bold text-md">目的地</h3>
                 <p class="text-gray-600 text-sm">緯度: ${lat.toFixed(4)}, 経度: ${lng.toFixed(4)}</p>
+                <p class="text-xs text-gray-500 mt-1">ROS2が最適経路を計算します</p>
                 <button onclick="handleSetDestinationClick('${robotDocId}', ${lat}, ${lng})" 
                         class="bg-emerald-500 hover:bg-emerald-700 text-white font-bold py-1 px-2 rounded text-sm mt-2">
                     この場所へ行く
@@ -239,38 +242,6 @@ export class MapService {
         if (this.activeInfoWindow) this.activeInfoWindow.close();
         infoWindow.open(this.map, anchor);
         this.activeInfoWindow = infoWindow;
-    }
-
-    /**
-     * 経路を表示する
-     */
-    displayRoute(origin, destination, onRouteCalculated) {
-        if (this.directionsRenderer) this.directionsRenderer.setMap(null);
-        
-        const directionsService = new google.maps.DirectionsService();
-        this.directionsRenderer = new google.maps.DirectionsRenderer({
-            suppressMarkers: true,
-            polylineOptions: { strokeColor: '#0000FF', strokeOpacity: 0.8, strokeWeight: 6 }
-        });
-        this.directionsRenderer.setMap(this.map);
-
-        directionsService.route(
-            {
-                origin: { lat: origin.latitude, lng: origin.longitude },
-                destination: destination,
-                travelMode: google.maps.TravelMode.DRIVING,
-            },
-            (response, status) => {
-                if (status === "OK") {
-                    this.directionsRenderer.setDirections(response);
-                    const path = response.routes[0].overview_path;
-                    onRouteCalculated(path);
-                } else {
-                    console.error("Directions request failed: " + status, response);
-                    alert("経路情報の取得に失敗しました: " + status);
-                }
-            }
-        );
     }
 
     /**
@@ -295,12 +266,8 @@ export class MapService {
     }
 
     /**
-     * 経路表示を削除する
+     * 🚨 経路表示機能は削除
+     * ROS2のNav2がSimulation環境で実際の経路を計算するため、
+     * Web側での経路表示は意味がありません
      */
-    clearRoute() {
-        if (this.directionsRenderer) {
-            this.directionsRenderer.setMap(null);
-            this.directionsRenderer = null;
-        }
-    }
 }

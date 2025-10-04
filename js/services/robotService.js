@@ -2,7 +2,10 @@ import { db, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, 
 import { getDistance } from '../utils/geoUtils.js';
 
 /**
- * ROS2統合版ロボット制御サービス（更新最適化版）
+ * ROS2統合版ロボット制御サービス（完全版）
+ * - 経路表示削除（ROS2のNav2が実際の経路を計算）
+ * - 位置同期最適化
+ * - GPS座標とSimulation空間の不一致に対応
  */
 export class RobotService {
     constructor(mapService, uiService, sensorDashboard) { 
@@ -18,7 +21,7 @@ export class RobotService {
             DISPATCHING: 'dispatching'
         };
         
-        // 🚨 更新頻度制御用のキャッシュ
+        // 更新頻度制御用のキャッシュ
         this.lastUpdateCache = {};
         this.updateThrottle = 500; // 500ms以内の更新は無視
     }
@@ -38,7 +41,7 @@ export class RobotService {
                 const robot = change.doc.data();
 
                 if (change.type === "added" || change.type === "modified") {
-                    // 🚨 重要な変更のみ処理
+                    // 重要な変更のみ処理
                     if (this.shouldProcessUpdate(docId, robot, now)) {
                         // マーカー更新
                         this.mapService.updateRobotMarker(docId, robot);
@@ -81,17 +84,14 @@ export class RobotService {
     }
 
     /**
-     * 🚨 更新を処理すべきか判断（重複・無意味な更新をスキップ）
-     * @param {string} docId - ロボットのドキュメントID
-     * @param {Object} robot - 新しいロボットデータ
-     * @param {number} now - 現在時刻（ミリ秒）
-     * @returns {boolean} 処理すべきならtrue
+     * 更新を処理すべきか判断（重複・無意味な更新をスキップ）
      */
     shouldProcessUpdate(docId, robot, now) {
         const lastUpdate = this.lastUpdateCache[docId];
         
         // 初回は必ず処理
         if (!lastUpdate) {
+            console.log(`🆕 ${robot.id}: 初回マーカー作成`);
             return true;
         }
         
@@ -113,12 +113,17 @@ export class RobotService {
             return true;
         }
         
-        // 位置の大きな変化は処理（移動中のみ）
-        if (robot.status === this.STATUS.MOVING || robot.status === this.STATUS.DISPATCHING) {
-            const posChanged = this.hasPositionChanged(lastUpdate.position, robot.position);
-            if (posChanged) {
-                return true;
-            }
+        // 位置の変化をチェック（すべての状態で）
+        const posChanged = this.hasPositionChanged(lastUpdate.position, robot.position);
+        if (posChanged) {
+            const oldPos = lastUpdate.position;
+            const newPos = robot.position;
+            console.log(
+                `📍 ${robot.id}: 位置更新 ` +
+                `(${oldPos?.latitude.toFixed(6)}, ${oldPos?.longitude.toFixed(6)}) → ` +
+                `(${newPos?.latitude.toFixed(6)}, ${newPos?.longitude.toFixed(6)})`
+            );
+            return true;
         }
         
         // その他の場合はスキップ
@@ -144,13 +149,13 @@ export class RobotService {
     }
 
     /**
-     * position が大きく変更されたかチェック
+     * position が変更されたかチェック
      */
     hasPositionChanged(oldPos, newPos) {
         if (!oldPos || !newPos) return true;
         
-        // 5m以上の移動で更新
-        const tolerance = 0.00005; // 約5m
+        // 1m以上の移動で更新（より細かく検知）
+        const tolerance = 0.00001; // 約1m
         const latDiff = Math.abs(newPos.latitude - oldPos.latitude);
         const lngDiff = Math.abs(newPos.longitude - oldPos.longitude);
         
@@ -174,10 +179,10 @@ export class RobotService {
                 this.mapService.removeUserMarker();
                 this.uiService?.showNotification(`ロボットに乗車しました`, "success");
             } else {
-                this.mapService.clearRoute();
                 this.uiService?.showNotification(`ロボットから降車しました`, "success");
             }
             
+            // InfoWindowを閉じる
             if (this.mapService.activeInfoWindow) {
                 this.mapService.activeInfoWindow.close();
             }
@@ -195,6 +200,7 @@ export class RobotService {
         try {
             console.log(`🚕 配車リクエスト: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
             
+            // アイドル状態のロボットを検索
             const robotsCol = collection(db, 'robots');
             const robotSnapshot = await getDocs(robotsCol);
             
@@ -235,6 +241,7 @@ export class RobotService {
             
             console.log(`✅ 最寄りロボット: ${closestRobot.data.id} (${closestRobot.distance.toFixed(2)}km)`);
             
+            // Firebaseに目的地を書き込み（ROS2が読み取る）
             const robotDocRef = doc(db, "robots", closestRobot.docId);
             await updateDoc(robotDocRef, {
                 status: this.STATUS.DISPATCHING,
@@ -243,15 +250,12 @@ export class RobotService {
             });
 
             this.uiService?.showNotification(
-                `ロボット ${closestRobot.data.id} を配車しました`, 
+                `ロボット ${closestRobot.data.id} を配車しました。ROS2が最適経路で移動します`, 
                 "success"
             );
             
-            this.mapService.displayRoute(
-                closestRobot.data.position, 
-                { lat, lng },
-                () => console.log('📍 経路表示完了')
-            );
+            // 🚨 経路表示は削除（ROS2側のNav2が実際の経路を計算）
+            console.log('📍 ROS2側でNav2が障害物を考慮した経路を計算します');
             
         } catch (error) {
             console.error("❌ 配車処理エラー:", error);
@@ -276,28 +280,27 @@ export class RobotService {
 
             const robotData = robotDoc.data();
             
+            // ステータスチェック
             if (robotData.status !== this.STATUS.IN_USE) {
                 this.uiService?.showNotification("このロボットは使用できません", "warning");
                 return;
             }
 
-            const currentPosition = robotData.position;
-            const destination = { lat, lng };
-
+            // Firebaseに目的地を書き込み（ROS2が実際に移動）
             await updateDoc(robotDocRef, {
                 status: this.STATUS.MOVING,
-                destination: new GeoPoint(destination.lat, destination.lng),
+                destination: new GeoPoint(lat, lng),
                 last_updated: new Date().toISOString()
             });
 
             this.uiService?.showNotification(
-                `目的地を設定しました。ロボットが移動を開始します`, 
+                `目的地を設定しました。ROS2が障害物を避けて移動します`, 
                 "success"
             );
             
-            this.mapService.displayRoute(currentPosition, destination, () => {
-                console.log('📍 経路表示完了');
-            });
+            // 🚨 Web側の経路表示は削除
+            // ROS2のNav2が実際のSimulation環境で経路計算
+            console.log('📍 ROS2側のNav2がGazebo環境で最適経路を計算します');
             
         } catch (error) {
             console.error("❌ 目的地設定エラー:", error);
@@ -333,6 +336,26 @@ export class RobotService {
     }
 
     /**
+     * ロボットの詳細情報を取得
+     */
+    async getRobotDetails(robotId) {
+        try {
+            const robotDocRef = doc(db, "robots", robotId);
+            const robotDoc = await getDoc(robotDocRef);
+            
+            if (robotDoc.exists()) {
+                return { id: robotDoc.id, data: robotDoc.data() };
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error(`❌ ロボット ${robotId} 詳細取得エラー:`, error);
+            return null;
+        }
+    }
+
+    /**
      * 緊急停止処理
      */
     async emergencyStop(robotId) {
@@ -346,7 +369,6 @@ export class RobotService {
                 last_updated: new Date().toISOString()
             });
             
-            this.mapService.clearRoute();
             this.uiService?.showNotification(`ロボット ${robotId} を停止しました`, "warning");
             
         } catch (error) {
