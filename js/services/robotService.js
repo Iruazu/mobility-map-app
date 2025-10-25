@@ -2,10 +2,7 @@ import { db, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, 
 import { getDistance } from '../utils/geoUtils.js';
 
 /**
- * ROS2統合版ロボット制御サービス（完全版）
- * - 経路表示削除（ROS2のNav2が実際の経路を計算）
- * - 位置同期最適化
- * - GPS座標とSimulation空間の不一致に対応
+ * Phase 2完全版: 無限ループ防止強化 + 複数ロボット対応
  */
 export class RobotService {
     constructor(mapService, uiService, sensorDashboard) { 
@@ -13,7 +10,6 @@ export class RobotService {
         this.uiService = uiService;
         this.sensorDashboard = sensorDashboard;
         
-        // ステータス定義（ROS2と完全一致）
         this.STATUS = {
             IDLE: 'idle',
             IN_USE: 'in_use',
@@ -21,13 +17,35 @@ export class RobotService {
             DISPATCHING: 'dispatching'
         };
         
-        // 更新頻度制御用のキャッシュ
+        // ===== Phase 2: 無限ループ防止の強化 =====
         this.lastUpdateCache = {};
-        this.updateThrottle = 500; // 500ms以内の更新は無視
+        this.updateThrottle = 500; // 500ms
+        
+        // destination処理の重複防止
+        this.lastProcessedDestinations = {}; // robot_id -> destination hash
+        this.destinationProcessingLock = {}; // robot_id -> boolean
+        
+        console.log("🚀 Phase 2 RobotService initialized");
     }
 
     /**
-     * Firestoreのリアルタイム更新を開始（最適化版）
+     * Phase 2改善: destinationのハッシュ値計算(ROS2側と統一)
+     * 小数点5桁に丸めて比較
+     */
+    calculateDestinationHash(destination) {
+        if (!destination || !destination.latitude || !destination.longitude) {
+            return null;
+        }
+        
+        // ROS2側と同じ精度で丸める
+        const latRounded = Math.round(destination.latitude * 100000) / 100000;
+        const lngRounded = Math.round(destination.longitude * 100000) / 100000;
+        
+        return `${latRounded.toFixed(5)}_${lngRounded.toFixed(5)}`;
+    }
+
+    /**
+     * Firestoreのリアルタイム更新を開始（Phase 2最適化版）
      */
     startRealtimeUpdates() {
         const robotsCol = collection(db, 'robots');
@@ -41,7 +59,6 @@ export class RobotService {
                 const robot = change.doc.data();
 
                 if (change.type === "added" || change.type === "modified") {
-                    // 重要な変更のみ処理
                     if (this.shouldProcessUpdate(docId, robot, now)) {
                         // マーカー更新
                         this.mapService.updateRobotMarker(docId, robot);
@@ -71,7 +88,6 @@ export class RobotService {
                 }
             });
             
-            // 重要な変更があった場合のみログ出力
             if (significantChanges > 0) {
                 console.log(`📡 Firestore更新処理: ${significantChanges}件の重要な変更`);
             }
@@ -84,36 +100,35 @@ export class RobotService {
     }
 
     /**
-     * 更新を処理すべきか判断（重複・無意味な更新をスキップ）
+     * Phase 2改善: 更新処理判定（destination重複検知強化）
      */
     shouldProcessUpdate(docId, robot, now) {
         const lastUpdate = this.lastUpdateCache[docId];
         
-        // 初回は必ず処理
         if (!lastUpdate) {
             console.log(`🆕 ${robot.id}: 初回マーカー作成`);
             return true;
         }
         
-        // スロットリング: 500ms以内の更新は無視
+        // スロットリング
         if (now - lastUpdate.timestamp < this.updateThrottle) {
             return false;
         }
         
-        // ステータス変更は必ず処理
+        // ステータス変更
         if (robot.status !== lastUpdate.status) {
             console.log(`🤖 ${robot.id}: ${lastUpdate.status} → ${robot.status}`);
             return true;
         }
         
-        // destination の変更は必ず処理
-        const destChanged = this.hasDestinationChanged(lastUpdate.destination, robot.destination);
+        // ===== Phase 2: destination変更検知の強化 =====
+        const destChanged = this.hasDestinationChangedRobust(docId, lastUpdate.destination, robot.destination);
         if (destChanged) {
-            console.log(`🎯 ${robot.id}: destination 変更検知`);
+            console.log(`🎯 ${robot.id}: destination変更検知 [Web側]`);
             return true;
         }
         
-        // 位置の変化をチェック（すべての状態で）
+        // 位置変更(0.00001度 ≈ 1m)
         const posChanged = this.hasPositionChanged(lastUpdate.position, robot.position);
         if (posChanged) {
             const oldPos = lastUpdate.position;
@@ -126,35 +141,32 @@ export class RobotService {
             return true;
         }
         
-        // その他の場合はスキップ
         return false;
     }
 
     /**
-     * destination が変更されたかチェック
+     * Phase 2: 堅牢なdestination変更検知
      */
-    hasDestinationChanged(oldDest, newDest) {
+    hasDestinationChangedRobust(robotId, oldDest, newDest) {
         // 両方nullなら変更なし
         if (!oldDest && !newDest) return false;
         
         // 片方だけnullなら変更あり
         if (!oldDest || !newDest) return true;
         
-        // 座標の差分チェック（0.00001度 ≈ 1m）
-        const tolerance = 0.00001;
-        const latDiff = Math.abs(newDest.latitude - oldDest.latitude);
-        const lngDiff = Math.abs(newDest.longitude - oldDest.longitude);
+        // ハッシュ比較(丸め誤差に強い)
+        const oldHash = this.calculateDestinationHash(oldDest);
+        const newHash = this.calculateDestinationHash(newDest);
         
-        return latDiff > tolerance || lngDiff > tolerance;
+        return oldHash !== newHash;
     }
 
     /**
-     * position が変更されたかチェック
+     * position変更検知(従来通り)
      */
     hasPositionChanged(oldPos, newPos) {
         if (!oldPos || !newPos) return true;
         
-        // 1m以上の移動で更新（より細かく検知）
         const tolerance = 0.00001; // 約1m
         const latDiff = Math.abs(newPos.latitude - oldPos.latitude);
         const lngDiff = Math.abs(newPos.longitude - oldPos.longitude);
@@ -163,7 +175,7 @@ export class RobotService {
     }
 
     /**
-     * ロボットの乗車/降車処理
+     * 乗車/降車処理
      */
     async handleRideAction(docId, action) {
         try {
@@ -182,7 +194,6 @@ export class RobotService {
                 this.uiService?.showNotification(`ロボットから降車しました`, "success");
             }
             
-            // InfoWindowを閉じる
             if (this.mapService.activeInfoWindow) {
                 this.mapService.activeInfoWindow.close();
             }
@@ -194,13 +205,12 @@ export class RobotService {
     }
 
     /**
-     * ロボット配車処理
+     * Phase 2: ロボット配車処理(重複防止強化)
      */
     async callRobot(lat, lng) {
         try {
             console.log(`🚕 配車リクエスト: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
             
-            // アイドル状態のロボットを検索
             const robotsCol = collection(db, 'robots');
             const robotSnapshot = await getDocs(robotsCol);
             
@@ -241,8 +251,27 @@ export class RobotService {
             
             console.log(`✅ 最寄りロボット: ${closestRobot.data.id} (${closestRobot.distance.toFixed(2)}km)`);
             
-            // Firebaseに目的地を書き込み（ROS2が読み取る）
-            const robotDocRef = doc(db, "robots", closestRobot.docId);
+            // ===== Phase 2: destination設定前に重複チェック =====
+            const destHash = this.calculateDestinationHash({ latitude: lat, longitude: lng });
+            const robotId = closestRobot.docId;
+            
+            if (this.lastProcessedDestinations[robotId] === destHash) {
+                console.warn(`⏸️ 同じdestinationが既に処理中: ${destHash}`);
+                this.uiService?.showNotification("このロボットは既に配車処理中です", "info");
+                return;
+            }
+            
+            // 処理ロック
+            if (this.destinationProcessingLock[robotId]) {
+                console.warn(`🔒 ロボット ${robotId} は処理中です`);
+                return;
+            }
+            
+            this.destinationProcessingLock[robotId] = true;
+            this.lastProcessedDestinations[robotId] = destHash;
+            
+            // Firebaseに書き込み
+            const robotDocRef = doc(db, "robots", robotId);
             await updateDoc(robotDocRef, {
                 status: this.STATUS.DISPATCHING,
                 destination: new GeoPoint(lat, lng),
@@ -250,12 +279,16 @@ export class RobotService {
             });
 
             this.uiService?.showNotification(
-                `ロボット ${closestRobot.data.id} を配車しました。ROS2が最適経路で移動します`, 
+                `ロボット ${closestRobot.data.id} を配車しました`, 
                 "success"
             );
             
-            // 🚨 経路表示は削除（ROS2側のNav2が実際の経路を計算）
-            console.log('📍 ROS2側でNav2が障害物を考慮した経路を計算します');
+            // 処理ロック解除
+            setTimeout(() => {
+                this.destinationProcessingLock[robotId] = false;
+            }, 2000);
+            
+            console.log(`📍 destination設定完了 [Hash: ${destHash}]`);
             
         } catch (error) {
             console.error("❌ 配車処理エラー:", error);
@@ -264,7 +297,7 @@ export class RobotService {
     }
 
     /**
-     * 目的地設定処理
+     * Phase 2: 目的地設定処理(重複防止強化)
      */
     async setDestination(robotDocId, lat, lng) {
         try {
@@ -280,13 +313,30 @@ export class RobotService {
 
             const robotData = robotDoc.data();
             
-            // ステータスチェック
             if (robotData.status !== this.STATUS.IN_USE) {
                 this.uiService?.showNotification("このロボットは使用できません", "warning");
                 return;
             }
 
-            // Firebaseに目的地を書き込み（ROS2が実際に移動）
+            // ===== Phase 2: destination設定前に重複チェック =====
+            const destHash = this.calculateDestinationHash({ latitude: lat, longitude: lng });
+            
+            if (this.lastProcessedDestinations[robotDocId] === destHash) {
+                console.warn(`⏸️ 同じdestinationが既に処理中: ${destHash}`);
+                this.uiService?.showNotification("この目的地は既に設定されています", "info");
+                return;
+            }
+            
+            // 処理ロック
+            if (this.destinationProcessingLock[robotDocId]) {
+                console.warn(`🔒 ロボット ${robotDocId} は処理中です`);
+                return;
+            }
+            
+            this.destinationProcessingLock[robotDocId] = true;
+            this.lastProcessedDestinations[robotDocId] = destHash;
+
+            // Firebase書き込み
             await updateDoc(robotDocRef, {
                 status: this.STATUS.MOVING,
                 destination: new GeoPoint(lat, lng),
@@ -294,13 +344,16 @@ export class RobotService {
             });
 
             this.uiService?.showNotification(
-                `目的地を設定しました。ROS2が障害物を避けて移動します`, 
+                `目的地を設定しました`, 
                 "success"
             );
             
-            // 🚨 Web側の経路表示は削除
-            // ROS2のNav2が実際のSimulation環境で経路計算
-            console.log('📍 ROS2側のNav2がGazebo環境で最適経路を計算します');
+            // 処理ロック解除
+            setTimeout(() => {
+                this.destinationProcessingLock[robotDocId] = false;
+            }, 2000);
+            
+            console.log(`📍 destination設定完了 [Hash: ${destHash}]`);
             
         } catch (error) {
             console.error("❌ 目的地設定エラー:", error);
@@ -336,26 +389,6 @@ export class RobotService {
     }
 
     /**
-     * ロボットの詳細情報を取得
-     */
-    async getRobotDetails(robotId) {
-        try {
-            const robotDocRef = doc(db, "robots", robotId);
-            const robotDoc = await getDoc(robotDocRef);
-            
-            if (robotDoc.exists()) {
-                return { id: robotDoc.id, data: robotDoc.data() };
-            }
-            
-            return null;
-            
-        } catch (error) {
-            console.error(`❌ ロボット ${robotId} 詳細取得エラー:`, error);
-            return null;
-        }
-    }
-
-    /**
      * 緊急停止処理
      */
     async emergencyStop(robotId) {
@@ -368,6 +401,10 @@ export class RobotService {
                 destination: deleteField(),
                 last_updated: new Date().toISOString()
             });
+            
+            // キャッシュクリア
+            delete this.lastProcessedDestinations[robotId];
+            delete this.destinationProcessingLock[robotId];
             
             this.uiService?.showNotification(`ロボット ${robotId} を停止しました`, "warning");
             
@@ -383,5 +420,7 @@ export class RobotService {
     cleanup() {
         console.log("🧹 RobotService クリーンアップ完了");
         this.lastUpdateCache = {};
+        this.lastProcessedDestinations = {};
+        this.destinationProcessingLock = {};
     }
 }
