@@ -31,16 +31,17 @@
         </footer>
     </div>
 
-    <!-- 1. APIキーが書かれたファイルを読み込みます -->
-    <script src="apiKey.js"></script> 
-
-    <!-- 2. 読み込んだAPIキーを使って、動的にGoogle Mapsを読み込みます -->
-    <script>
-      const googleApiScript = document.createElement('script');
-      googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&loading=async&libraries=marker`;
-      googleApiScript.defer = true;
-      document.head.appendChild(googleApiScript);
-    </script>
+    <!-- APIキーを直接埋め込み（GitHub Pages用） -->
+<script>
+    // Google Maps API Key（HTTPリファラー制限済み）
+    const GOOGLE_API_KEY = "AIzaSyCkptHtUbuznDQzsQFt9JtAnvNqjmMLUlA";
+    
+    // Google Maps APIを読み込み
+    const googleApiScript = document.createElement('script');
+    googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&loading=async&libraries=marker`;
+    googleApiScript.defer = true;
+    document.head.appendChild(googleApiScript);
+</script>
 
     <!-- 新しいモジュール化されたJavaScriptファイルを読み込みます -->
     <script type="module" src="js/main.js"></script>
