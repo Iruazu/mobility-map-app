@@ -2,6 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
 import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, deleteField } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
 
 // ウェブアプリのFirebase設定
 const firebaseConfig = {
@@ -11,15 +12,17 @@ const firebaseConfig = {
     storageBucket: "mobility-map-ae58e.appspot.com",
     messagingSenderId: "714590381625",
     appId: "1:714590381625:web:fea8e2f819cba4a243cfe8",
-    measurementId: "G-PQ21YKP1VP"
+    measurementId: "G-PQ21YKP1VP",
+    databaseURL: "https://mobility-map-ae58e-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
 // Firebaseを初期化
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const rtdb = getDatabase(app);
 export const auth = getAuth(app);
 
-// Firebase関連の関数をエクスポート
+// Firestore関連の関数をエクスポート
 export { 
     collection, 
     onSnapshot, 
@@ -31,6 +34,14 @@ export {
     deleteField,
     signInAnonymously,
     onAuthStateChanged
+};
+
+// Realtime Database関連の関数をエクスポート
+export {
+    ref,
+    set,
+    onValue,
+    remove
 };
 
 /**

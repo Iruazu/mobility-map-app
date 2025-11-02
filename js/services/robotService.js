@@ -1,8 +1,8 @@
-import { db, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, deleteField } from '../config/firebase.js';
+import { db, rtdb, ref, set, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, deleteField } from '../config/firebase.js';
 import { getDistance } from '../utils/geoUtils.js';
 
 /**
- * Phase 2完全版: 無限ループ防止強化 + 複数ロボット対応
+ * Phase 2完全版 + Realtime Database対応: 無限ループ防止強化 + 複数ロボット対応
  */
 export class RobotService {
     constructor(mapService, uiService, sensorDashboard) { 
@@ -25,7 +25,7 @@ export class RobotService {
         this.lastProcessedDestinations = {}; // robot_id -> destination hash
         this.destinationProcessingLock = {}; // robot_id -> boolean
         
-        console.log("🚀 Phase 2 RobotService initialized");
+        console.log("🚀 Phase 2 RobotService + Realtime DB initialized");
     }
 
     /**
@@ -297,7 +297,7 @@ export class RobotService {
     }
 
     /**
-     * Phase 2: 目的地設定処理(重複防止強化)
+     * Phase 2 + Realtime DB: 目的地設定処理
      */
     async setDestination(robotDocId, lat, lng) {
         try {
@@ -318,25 +318,16 @@ export class RobotService {
                 return;
             }
 
-            // ===== Phase 2: destination設定前に重複チェック =====
-            const destHash = this.calculateDestinationHash({ latitude: lat, longitude: lng });
+            // ===== Realtime Database に目標を設定 =====
+            const goalRef = ref(rtdb, 'robot/goal');
+            await set(goalRef, {
+                x: lat,
+                y: lng
+            });
             
-            if (this.lastProcessedDestinations[robotDocId] === destHash) {
-                console.warn(`⏸️ 同じdestinationが既に処理中: ${destHash}`);
-                this.uiService?.showNotification("この目的地は既に設定されています", "info");
-                return;
-            }
-            
-            // 処理ロック
-            if (this.destinationProcessingLock[robotDocId]) {
-                console.warn(`🔒 ロボット ${robotDocId} は処理中です`);
-                return;
-            }
-            
-            this.destinationProcessingLock[robotDocId] = true;
-            this.lastProcessedDestinations[robotDocId] = destHash;
+            console.log(`📍 Realtime Database に目標座標を設定: (${lat}, ${lng})`);
 
-            // Firebase書き込み
+            // ===== Firestore にもステータス更新（オプション） =====
             await updateDoc(robotDocRef, {
                 status: this.STATUS.MOVING,
                 destination: new GeoPoint(lat, lng),
@@ -348,16 +339,9 @@ export class RobotService {
                 "success"
             );
             
-            // 処理ロック解除
-            setTimeout(() => {
-                this.destinationProcessingLock[robotDocId] = false;
-            }, 2000);
-            
-            console.log(`📍 destination設定完了 [Hash: ${destHash}]`);
-            
         } catch (error) {
             console.error("❌ 目的地設定エラー:", error);
-            this.uiService?.showNotification("目的地の設定に失敗しました", "error");
+            this.uiService?.showNotification("目的地の設定に失敗しました。", "error");
         }
     }
 
