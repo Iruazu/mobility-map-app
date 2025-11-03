@@ -2,6 +2,7 @@ import { createSvgIcon, createAdvancedMarker, createInfoWindow } from '../utils/
 
 /**
  * 地図とマーカー管理サービス（完全版）
+ * - ステータス変更時もマーカー更新対応
  * - 経路表示機能を削除（ROS2のNav2が実際の経路を計算）
  * - マーカー位置同期最適化
  */
@@ -15,6 +16,9 @@ export class MapService {
         
         // マーカー位置のキャッシュ
         this.lastMarkerPositions = {};
+        
+        // マーカーステータスのキャッシュ
+        this.lastMarkerStatuses = {};
         
         this.openInfoWindow = this.openInfoWindow.bind(this);
     }
@@ -54,14 +58,25 @@ export class MapService {
 
         // マーカーが既に存在する場合
         if (this.activeMarkers[docId]) {
-            // 位置が変わっていない場合はスキップ
-            if (!this.hasMarkerMoved(docId, newPosition)) {
+            const marker = this.activeMarkers[docId];
+            
+            // 位置とステータスの変更を検知
+            const positionChanged = this.hasMarkerMoved(docId, newPosition);
+            const statusChanged = this.hasStatusChanged(docId, robot.status);
+            
+            if (!positionChanged && !statusChanged) {
+                // 位置もステータスも変わっていない場合はスキップ
                 return;
             }
             
-            // 位置が変わった場合のみマーカーを削除して再作成
-            console.log(`🔄 ${robot.id}: マーカー位置更新`);
-            const marker = this.activeMarkers[docId];
+            // 変更があった場合はマーカーを削除して再作成
+            if (positionChanged) {
+                console.log(`🔄 ${robot.id}: マーカー位置更新`);
+            }
+            if (statusChanged) {
+                console.log(`🔄 ${robot.id}: マーカーステータス更新 → ${robot.status}`);
+            }
+            
             marker.map = null;
             delete this.activeMarkers[docId];
         }
@@ -84,6 +99,7 @@ export class MapService {
         
         this.activeMarkers[docId] = newMarker;
         this.lastMarkerPositions[docId] = newPosition;
+        this.lastMarkerStatuses[docId] = robot.status;
     }
 
     /**
@@ -99,6 +115,16 @@ export class MapService {
         const lngDiff = Math.abs(newPosition.lng - lastPosition.lng);
 
         return latDiff > tolerance || lngDiff > tolerance;
+    }
+    
+    /**
+     * ステータスが変わったかチェック
+     */
+    hasStatusChanged(docId, newStatus) {
+        const lastStatus = this.lastMarkerStatuses[docId];
+        if (!lastStatus) return true;
+        
+        return newStatus !== lastStatus;
     }
     
     /**
@@ -252,6 +278,7 @@ export class MapService {
             this.activeMarkers[docId].map = null;
             delete this.activeMarkers[docId];
             delete this.lastMarkerPositions[docId];
+            delete this.lastMarkerStatuses[docId];
         }
     }
 
