@@ -1,49 +1,41 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>mobility map observer </title>
+    <title>mobility map observer</title>
 
-    <!-- 外部ライブラリ: Tailwind CSS (デザイン調整用) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 自作のCSSファイルを読み込み -->
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="dashboard-styles.css">
 </head>
 <body class="bg-gray-100">
 
     <div class="app-container">
-        <!-- ヘッダー部分 -->
         <header class="bg-white shadow-md w-full p-4 text-center">
             <h1 class="text-2xl font-bold text-gray-800">mobility map observer</h1>
         </header>
 
-        <!-- 地図が表示されるエリア -->
-        <main id="map" class="map-area">
-            <!-- このdivがGoogle Mapsに置き換わります -->
-        </main>
+        <main id="map" class="map-area"></main>
 
-        <!-- フッター部分 -->
         <footer class="bg-white w-full p-2 text-center text-sm text-gray-600">
             <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
 
-    <!-- APIキーを直接埋め込み（GitHub Pages用） -->
-<script>
-    // Google Maps API Key（HTTPリファラー制限済み）
-    const GOOGLE_API_KEY = "AIzaSyCkptHtUbuznDQzsQFt9JtAnvNqjmMLUlA";
-    
-    // Google Maps APIを読み込み
-    const googleApiScript = document.createElement('script');
-    googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&loading=async&libraries=marker`;
-    googleApiScript.defer = true;
-    document.head.appendChild(googleApiScript);
-</script>
+    <!-- 🚀 APIキーを環境変数から読み込み -->
+    <script type="module">
+        import { API_KEYS } from './js/config/apiKeys.js';
+        
+        // Google Maps APIを読み込み
+        const googleApiScript = document.createElement('script');
+        googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker`;
+        googleApiScript.defer = true;
+        document.head.appendChild(googleApiScript);
+    </script>
 
-    <!-- 新しいモジュール化されたJavaScriptファイルを読み込みます -->
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

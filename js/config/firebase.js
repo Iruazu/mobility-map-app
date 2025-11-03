@@ -1,12 +1,13 @@
-// Firebase SDKから必要な関数をインポート
+// js/config/firebase.js
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
 import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, getDocs, GeoPoint, deleteField } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
 import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+import { API_KEYS } from './apiKeys.js';
 
 // ウェブアプリのFirebase設定
 const firebaseConfig = {
-    apiKey: "AIzaSyDW1WMrrgv-pg0lJwgR3G__R4xxtnQpevY",
+    apiKey: API_KEYS.FIREBASE_API_KEY,
     authDomain: "mobility-map-ae58e.firebaseapp.com",
     projectId: "mobility-map-ae58e",
     storageBucket: "mobility-map-ae58e.appspot.com",

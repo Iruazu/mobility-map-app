@@ -1,5 +1,4 @@
 # .gitignore
-
-# APIキーが書かれているこのファイルを、Gitの管理対象から除外する
 apiKey.js
+js/config/apiKeys.js  # ← 追加
 serviceAccountKey.json
