@@ -3,6 +3,7 @@ import { getDistance } from '../utils/geoUtils.js';
 
 /**
  * Phase 2完全版 + Realtime Database対応: 無限ループ防止強化 + 複数ロボット対応
+ * 配車機能修正版
  */
 export class RobotService {
     constructor(mapService, uiService, sensorDashboard) { 
@@ -19,7 +20,7 @@ export class RobotService {
         
         // ===== Phase 2: 無限ループ防止の強化 =====
         this.lastUpdateCache = {};
-        this.updateThrottle = 500; // 500ms
+        this.updateThrottle = 100; // 100ms に短縮（ステータス変更を即座に検知）
         
         // destination処理の重複防止
         this.lastProcessedDestinations = {}; // robot_id -> destination hash
@@ -110,14 +111,14 @@ export class RobotService {
             return true;
         }
         
-        // スロットリング
+        // スロットリング（100msに短縮）
         if (now - lastUpdate.timestamp < this.updateThrottle) {
             return false;
         }
         
-        // ステータス変更
+        // ステータス変更（最優先で検知）
         if (robot.status !== lastUpdate.status) {
-            console.log(`🤖 ${robot.id}: ${lastUpdate.status} → ${robot.status}`);
+            console.log(`🤖 ${robot.id}: ステータス変更 ${lastUpdate.status} → ${robot.status}`);
             return true;
         }
         
@@ -205,7 +206,7 @@ export class RobotService {
     }
 
     /**
-     * Phase 2: ロボット配車処理(重複防止強化)
+     * Phase 2 + Realtime DB対応: ロボット配車処理(重複防止強化)
      */
     async callRobot(lat, lng) {
         try {
@@ -245,6 +246,7 @@ export class RobotService {
             });
 
             if (!closestRobot) {
+                console.warn("⚠️ 利用可能なロボットが見つかりません");
                 this.uiService?.showNotification("現在、利用可能なロボットがいません", "warning");
                 return;
             }
@@ -270,7 +272,16 @@ export class RobotService {
             this.destinationProcessingLock[robotId] = true;
             this.lastProcessedDestinations[robotId] = destHash;
             
-            // Firebaseに書き込み
+            // ===== 🚀 重要: Realtime Database に目標を設定 =====
+            const goalRef = ref(rtdb, 'robot/goal');
+            await set(goalRef, {
+                x: lat,
+                y: lng
+            });
+            
+            console.log(`📍 Realtime Database に目標座標を設定: (${lat}, ${lng})`);
+            
+            // ===== Firestore にもステータス更新 =====
             const robotDocRef = doc(db, "robots", robotId);
             await updateDoc(robotDocRef, {
                 status: this.STATUS.DISPATCHING,
@@ -297,7 +308,7 @@ export class RobotService {
     }
 
     /**
-     * Phase 2 + Realtime DB: 目的地設定処理
+     * Phase 2 + Realtime DB: 目的地設定処理（乗車後）
      */
     async setDestination(robotDocId, lat, lng) {
         try {
@@ -327,7 +338,7 @@ export class RobotService {
             
             console.log(`📍 Realtime Database に目標座標を設定: (${lat}, ${lng})`);
 
-            // ===== Firestore にもステータス更新（オプション） =====
+            // ===== Firestore にもステータス更新 =====
             await updateDoc(robotDocRef, {
                 status: this.STATUS.MOVING,
                 destination: new GeoPoint(lat, lng),
@@ -385,6 +396,10 @@ export class RobotService {
                 destination: deleteField(),
                 last_updated: new Date().toISOString()
             });
+            
+            // Realtime Database の goal も削除
+            const goalRef = ref(rtdb, 'robot/goal');
+            await set(goalRef, null);
             
             // キャッシュクリア
             delete this.lastProcessedDestinations[robotId];
