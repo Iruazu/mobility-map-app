@@ -1,4 +1,4 @@
 # .gitignore
 apiKey.js
-js/config/apiKeys.js  # ← 追加
+js/config/apiKeys.js  
 serviceAccountKey.json
