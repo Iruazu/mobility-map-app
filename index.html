@@ -1,4 +1,3 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -24,17 +23,6 @@
             <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
-
-    <!-- 🚀 APIキーを環境変数から読み込み -->
-    <script type="module">
-        import { API_KEYS } from './js/config/apiKeys.js';
-        
-        // Google Maps APIを読み込み
-        const googleApiScript = document.createElement('script');
-        googleApiScript.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker`;
-        googleApiScript.defer = true;
-        document.head.appendChild(googleApiScript);
-    </script>
 
     <script type="module" src="js/main.js"></script>
 </body>

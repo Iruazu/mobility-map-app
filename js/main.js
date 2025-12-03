@@ -2,7 +2,7 @@ import { initializeAuth } from './config/firebase.js';
 import { MapService } from './services/mapService.js';
 import { RobotService } from './services/robotService.js';
 import { UIService } from './services/uiService.js';
-import { SensorDashboard } from './services/sensorDashboard.js'; // 🚀 SensorDashboard をインポート
+import { SensorDashboard } from './services/sensorDashboard.js';
 
 /**
  * メインアプリケーションクラス
@@ -12,7 +12,7 @@ class MobilityApp {
         this.mapService = null;
         this.robotService = null;
         this.uiService = null;
-        this.sensorDashboard = null; // 🚀 プロパティに追加
+        this.sensorDashboard = null;
         this.isInitialized = false;
     }
 
@@ -30,16 +30,14 @@ class MobilityApp {
             this.mapService = new MapService();
             this.sensorDashboard = new SensorDashboard(this.mapService); 
             
-            // 🚀 修正後の順序とロジック
-            // 1. UIService を初期化。ただし、RobotService はまだないので null を渡す。
+            // UIService を初期化。ただし、RobotService はまだないので null を渡す。
             this.uiService = new UIService(null, this.mapService);
             
-            // 2. RobotService を初期化。MapService, UIService, SensorDashboard を渡す。
+            // RobotService を初期化。MapService, UIService, SensorDashboard を渡す。
             this.robotService = new RobotService(this.mapService, this.uiService, this.sensorDashboard);
 
-            // 3. 依存関係を解決: UIService に RobotService の参照を渡す。
-            //    🚨 このメソッドがエラーの原因だったので、UIService にこのメソッドを追加します。
-            this.uiService.setRobotService(this.robotService); // 修正後、この行は正常に動作するようになります。
+            // 依存関係を解決: UIService に RobotService の参照を渡す。
+            this.uiService.setRobotService(this.robotService);
             
             // マップの初期化
             this.initializeMap();
@@ -57,26 +55,49 @@ class MobilityApp {
     }
 
     /**
-     * Google Maps APIのロードを待つPromise
+     * Google Maps APIを動的に読み込み、完了を待つPromise
      */
-    waitForGoogleMaps() {
-        return new Promise((resolve, reject) => {
-            let attempts = 0;
-            const maxAttempts = 100; // 10秒待機（100 * 100ms）
+    async waitForGoogleMaps() {
+        try {
+            // APIキーをインポート
+            const { API_KEYS } = await import('./config/apiKeys.js');
             
-            const checkApi = () => {
+            return new Promise((resolve, reject) => {
+                // 既に読み込まれている場合
                 if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                    console.log('Google Maps API は既に読み込まれています');
+                    resolve();
+                    return;
+                }
+                
+                // Google Maps APIスクリプトを作成
+                const script = document.createElement('script');
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker`;
+                script.async = true;
+                script.defer = true;
+                
+                script.onload = () => {
                     console.log('Google Maps API読み込み完了');
                     resolve();
-                } else if (attempts >= maxAttempts) {
-                    reject(new Error('Google Maps APIの読み込みがタイムアウトしました'));
-                } else {
-                    attempts++;
-                    setTimeout(checkApi, 100);
-                }
-            };
-            checkApi();
-        });
+                };
+                
+                script.onerror = () => {
+                    reject(new Error('Google Maps APIの読み込みに失敗しました'));
+                };
+                
+                document.head.appendChild(script);
+                
+                // タイムアウト設定（10秒）
+                setTimeout(() => {
+                    if (typeof google === 'undefined') {
+                        reject(new Error('Google Maps APIの読み込みがタイムアウトしました'));
+                    }
+                }, 10000);
+            });
+        } catch (error) {
+            console.error('APIキーの読み込みエラー:', error);
+            throw error;
+        }
     }
 
     /**
@@ -121,10 +142,10 @@ class MobilityApp {
                 mapService: !!this.mapService,
                 robotService: !!this.robotService,
                 uiService: !!this.uiService,
-                sensorDashboard: !!this.sensorDashboard // 🚀 ダッシュボードの状態を追加
+                sensorDashboard: !!this.sensorDashboard
             },
             activeMarkers: this.mapService ? Object.keys(this.mapService.activeMarkers).length : 0,
-            activeSimulations: this.robotService ? Object.keys(this.robotService.activeSimulations).length : 0,
+            activeSimulations: this.robotService ? Object.keys(this.robotService.activeSimulations || {}).length : 0,
             userMarker: this.mapService ? (this.mapService.userMarker ? 'Present' : 'None') : 'Unknown',
             mapInitialized: this.mapService ? !!this.mapService.map : false
         };
@@ -137,14 +158,13 @@ class MobilityApp {
         console.log('Mobility Appをシャットダウンしています...');
         
         if (this.robotService) {
-            this.robotService.stopAllSimulations();
+            this.robotService.cleanup();
         }
         
         if (this.uiService) {
             this.uiService.cleanup();
         }
 
-        // 🚀 ダッシュボードのクリーンアップを追加
         if (this.sensorDashboard) {
             this.sensorDashboard.cleanup();
         }
