@@ -16,7 +16,13 @@ concurrency:
 
 jobs:
   deploy:
+    # ✅ environment を追加
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,4 +46,5 @@ jobs:
           path: '.'
       
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
