@@ -55,7 +55,7 @@ class MobilityApp {
     }
 
     /**
-     * Google Maps APIを動的に読み込み、完了を待つPromise
+     * Google Maps APIを動的に読み込み、完全に初期化されるまで待つPromise
      */
     async waitForGoogleMaps() {
         try {
@@ -63,8 +63,10 @@ class MobilityApp {
             const { API_KEYS } = await import('./config/apiKeys.js');
             
             return new Promise((resolve, reject) => {
-                // 既に読み込まれている場合
-                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                // 既に完全に読み込まれている場合
+                if (typeof google !== 'undefined' && 
+                    typeof google.maps !== 'undefined' && 
+                    typeof google.maps.Map === 'function') {
                     console.log('Google Maps API は既に読み込まれています');
                     resolve();
                     return;
@@ -72,27 +74,46 @@ class MobilityApp {
                 
                 // Google Maps APIスクリプトを作成
                 const script = document.createElement('script');
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker`;
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker&callback=initGoogleMapsCallback`;
                 script.async = true;
                 script.defer = true;
                 
-                script.onload = () => {
-                    console.log('Google Maps API読み込み完了');
-                    resolve();
+                // グローバルコールバック関数を設定
+                window.initGoogleMapsCallback = () => {
+                    console.log('Google Maps APIコールバック実行');
+                    
+                    // google.maps.Mapが使用可能になるまで待つ
+                    const checkInterval = setInterval(() => {
+                        if (typeof google !== 'undefined' && 
+                            typeof google.maps !== 'undefined' && 
+                            typeof google.maps.Map === 'function') {
+                            clearInterval(checkInterval);
+                            console.log('Google Maps API読み込み完了');
+                            resolve();
+                        }
+                    }, 50);
+                    
+                    // タイムアウト（5秒）
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                        if (typeof google === 'undefined' || typeof google.maps.Map !== 'function') {
+                            reject(new Error('Google Maps APIの初期化がタイムアウトしました'));
+                        }
+                    }, 5000);
                 };
                 
                 script.onerror = () => {
-                    reject(new Error('Google Maps APIの読み込みに失敗しました'));
+                    reject(new Error('Google Maps APIスクリプトの読み込みに失敗しました'));
                 };
                 
                 document.head.appendChild(script);
                 
-                // タイムアウト設定（10秒）
+                // 全体のタイムアウト設定（15秒）
                 setTimeout(() => {
-                    if (typeof google === 'undefined') {
-                        reject(new Error('Google Maps APIの読み込みがタイムアウトしました'));
+                    if (typeof google === 'undefined' || typeof google.maps.Map !== 'function') {
+                        reject(new Error('Google Maps APIの読み込みがタイムアウトしました（15秒）'));
                     }
-                }, 10000);
+                }, 15000);
             });
         } catch (error) {
             console.error('APIキーの読み込みエラー:', error);
@@ -189,11 +210,9 @@ class MobilityApp {
 // グローバルスコープでアプリケーションインスタンスを作成
 const mobilityApp = new MobilityApp();
 
-// Google Maps APIのコールバック関数をグローバルスコープに公開
+// Google Maps APIのコールバック関数（フォールバック用）
 window.initMap = () => {
-    // Google Maps APIから呼び出される場合は何もしない
-    // 実際の初期化はDOMContentLoaded時に行う
-    console.log('Google Maps APIコールバックが呼び出されました');
+    console.log('initMap コールバックが呼び出されました');
 };
 
 // デバッグ用関数をグローバルスコープに公開
@@ -232,7 +251,7 @@ window.addEventListener('error', (event) => {
 
 window.addEventListener('unhandledrejection', (event) => {
     console.error('未処理のPromiseリジェクション:', event.reason);
-    event.preventDefault(); // エラーがブラウザのコンソールに表示されるのを防ぐ
+    event.preventDefault();
 });
 
 export default mobilityApp;
