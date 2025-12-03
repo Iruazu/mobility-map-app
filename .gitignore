@@ -1,4 +1,8 @@
 # .gitignore
 apiKey.js
+<<<<<<< HEAD
 js/config/apiKeys.js  
+=======
+js/config/apiKeys.js  # ← 追加
+>>>>>>> e32484cbacc6421c055239eb82973534d4264cc6
 serviceAccountKey.json
