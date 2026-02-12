@@ -14,6 +14,36 @@ class MobilityApp {
         this.uiService = null;
         this.sensorDashboard = null;
         this.isInitialized = false;
+        this.splashProgress = 0;
+    }
+
+    /**
+     * スプラッシュスクリーン – プログレスバー更新
+     */
+    updateSplashProgress(percent) {
+        this.splashProgress = Math.min(percent, 100);
+        const bar = document.getElementById('splash-progress-bar');
+        if (bar) bar.style.width = `${this.splashProgress}%`;
+    }
+
+    /**
+     * スプラッシュスクリーンを非表示にする
+     */
+    hideSplash() {
+        const splash = document.getElementById('splash-screen');
+        const app = document.getElementById('app-container');
+        if (splash) {
+            this.updateSplashProgress(100);
+            setTimeout(() => {
+                splash.classList.add('fade-out');
+                if (app) app.classList.add('visible');
+                setTimeout(() => {
+                    splash.style.display = 'none';
+                }, 800);
+            }, 400);
+        } else if (app) {
+            app.classList.add('visible');
+        }
     }
 
     /**
@@ -22,34 +52,48 @@ class MobilityApp {
     async initialize() {
         try {
             console.log('Mobility Appを初期化しています...');
+            this.updateSplashProgress(10);
 
             // Google Maps APIがロードされるのを待つ
             await this.waitForGoogleMaps();
+            this.updateSplashProgress(40);
             
             // サービス初期化
             this.mapService = new MapService();
             this.sensorDashboard = new SensorDashboard(this.mapService); 
+            this.updateSplashProgress(55);
             
-            // UIService を初期化。ただし、RobotService はまだないので null を渡す。
+            // UIService を初期化
             this.uiService = new UIService(null, this.mapService);
+            this.updateSplashProgress(65);
             
-            // RobotService を初期化。MapService, UIService, SensorDashboard を渡す。
+            // RobotService を初期化
             this.robotService = new RobotService(this.mapService, this.uiService, this.sensorDashboard);
 
-            // 依存関係を解決: UIService に RobotService の参照を渡す。
+            // 依存関係を解決
             this.uiService.setRobotService(this.robotService);
+            this.updateSplashProgress(75);
             
             // マップの初期化
             this.initializeMap();
+            this.updateSplashProgress(85);
 
             // Firebase認証を初期化
             initializeAuth(() => {
                 this.onAuthSuccess();
             });
 
+            this.updateSplashProgress(95);
             console.log('Mobility App初期化完了');
+
+            // スプラッシュ非表示（少し余韻を持たせる）
+            setTimeout(() => {
+                this.hideSplash();
+            }, 600);
+
         } catch (error) {
             console.error('アプリケーション初期化エラー:', error);
+            this.hideSplash();
             alert('アプリケーションの初期化に失敗しました。ページを再読み込みしてください。');
         }
     }
@@ -59,11 +103,10 @@ class MobilityApp {
      */
     async waitForGoogleMaps() {
         try {
-            // APIキーをインポート
             const { API_KEYS } = await import('./config/apiKeys.js');
+            this.updateSplashProgress(20);
             
             return new Promise((resolve, reject) => {
-                // 既に完全に読み込まれている場合
                 if (typeof google !== 'undefined' && 
                     typeof google.maps !== 'undefined' && 
                     typeof google.maps.Map === 'function') {
@@ -72,17 +115,15 @@ class MobilityApp {
                     return;
                 }
                 
-                // Google Maps APIスクリプトを作成
                 const script = document.createElement('script');
                 script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEYS.GOOGLE_MAPS}&loading=async&libraries=marker&callback=initGoogleMapsCallback`;
                 script.async = true;
                 script.defer = true;
                 
-                // グローバルコールバック関数を設定
                 window.initGoogleMapsCallback = () => {
                     console.log('Google Maps APIコールバック実行');
+                    this.updateSplashProgress(30);
                     
-                    // google.maps.Mapが使用可能になるまで待つ
                     const checkInterval = setInterval(() => {
                         if (typeof google !== 'undefined' && 
                             typeof google.maps !== 'undefined' && 
@@ -93,7 +134,6 @@ class MobilityApp {
                         }
                     }, 50);
                     
-                    // タイムアウト（5秒）
                     setTimeout(() => {
                         clearInterval(checkInterval);
                         if (typeof google === 'undefined' || typeof google.maps.Map !== 'function') {
@@ -108,7 +148,6 @@ class MobilityApp {
                 
                 document.head.appendChild(script);
                 
-                // 全体のタイムアウト設定（15秒）
                 setTimeout(() => {
                     if (typeof google === 'undefined' || typeof google.maps.Map !== 'function') {
                         reject(new Error('Google Maps APIの読み込みがタイムアウトしました（15秒）'));
@@ -144,7 +183,6 @@ class MobilityApp {
         this.robotService.startRealtimeUpdates();
         this.isInitialized = true;
         
-        // デバッグ用：10秒後にデバッグ情報を表示
         setTimeout(() => {
             if (this.uiService) {
                 this.uiService.showDebugInfo();
@@ -154,7 +192,6 @@ class MobilityApp {
 
     /**
      * アプリケーションの状態を取得
-     * @returns {Object} アプリケーション状態
      */
     getStatus() {
         return {

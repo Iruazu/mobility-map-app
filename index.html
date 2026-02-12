@@ -1,29 +1,179 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>mobility map observer</title>
+    <meta name="description" content="モビリティ配車管理アプリ - リアルタイムでロボットの位置追跡と配車指示">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="dashboard-styles.css">
 </head>
+
 <body class="bg-gray-100">
 
-    <div class="app-container">
-        <header class="bg-white shadow-md w-full p-4 text-center">
-            <h1 class="text-2xl font-bold text-gray-800">mobility map observer</h1>
+    <!-- ========== スプラッシュスクリーン ========== -->
+    <div id="splash-screen" class="splash-screen">
+        <div class="splash-content">
+            <div class="splash-logo">
+                <svg class="splash-icon" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="40" cy="40" r="36" stroke="url(#splash-gradient)" stroke-width="3" fill="none"
+                        opacity="0.3" />
+                    <circle cx="40" cy="40" r="24" stroke="url(#splash-gradient)" stroke-width="2" fill="none"
+                        opacity="0.5" />
+                    <circle cx="40" cy="40" r="8" fill="url(#splash-gradient)" />
+                    <path d="M40 4 L40 16" stroke="url(#splash-gradient)" stroke-width="2" stroke-linecap="round" />
+                    <path d="M40 64 L40 76" stroke="url(#splash-gradient)" stroke-width="2" stroke-linecap="round" />
+                    <path d="M4 40 L16 40" stroke="url(#splash-gradient)" stroke-width="2" stroke-linecap="round" />
+                    <path d="M64 40 L76 40" stroke="url(#splash-gradient)" stroke-width="2" stroke-linecap="round" />
+                    <defs>
+                        <linearGradient id="splash-gradient" x1="0" y1="0" x2="80" y2="80">
+                            <stop offset="0%" stop-color="#667eea" />
+                            <stop offset="100%" stop-color="#764ba2" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <div class="splash-rings">
+                    <div class="splash-ring ring-1"></div>
+                    <div class="splash-ring ring-2"></div>
+                    <div class="splash-ring ring-3"></div>
+                </div>
+            </div>
+            <h1 class="splash-title">mobility map observer</h1>
+            <p class="splash-subtitle">Initializing systems...</p>
+            <div class="splash-progress">
+                <div class="splash-progress-bar" id="splash-progress-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== メインアプリ ========== -->
+    <div class="app-container" id="app-container">
+        <!-- ヘッダー -->
+        <header class="app-header" id="app-header">
+            <div class="header-left">
+                <button id="sidebar-toggle" class="header-icon-btn" title="メニュー">
+                    <div class="hamburger-icon" id="hamburger-icon">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </button>
+                <h1 class="header-title">
+                    <span class="header-title-icon">◉</span>
+                    mobility map observer
+                </h1>
+            </div>
+            <div class="header-right">
+                <div class="search-container" id="search-container">
+                    <button class="header-icon-btn search-toggle-btn" id="search-toggle" title="検索">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <path d="M21 21l-4.35-4.35" />
+                        </svg>
+                    </button>
+                    <div class="search-input-wrapper" id="search-input-wrapper">
+                        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <path d="M21 21l-4.35-4.35" />
+                        </svg>
+                        <input type="text" id="robot-search-input" class="search-input" placeholder="ロボットを検索..."
+                            autocomplete="off">
+                        <button class="search-close-btn" id="search-close">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </header>
 
+        <!-- サイドバー -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2 class="text-lg font-semibold">🤖 ロボット一覧</h2>
+                <button id="sidebar-close" class="header-icon-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="robot-list" id="robot-list">
+                <p class="no-data">ロボット情報を取得中...</p>
+            </div>
+        </nav>
+
+        <!-- 地図エリア -->
         <main id="map" class="map-area"></main>
 
-        <footer class="bg-white w-full p-2 text-center text-sm text-gray-600">
+        <!-- ========= ステータスバー（配車フロー表示） ========= -->
+        <div class="ride-status-bar" id="ride-status-bar">
+            <div class="status-bar-inner">
+                <div class="status-step" data-step="dispatching">
+                    <div class="step-icon">🚕</div>
+                    <div class="step-label">配車中</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="status-step" data-step="idle-pickup">
+                    <div class="step-icon">🛬</div>
+                    <div class="step-label">到着</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="status-step" data-step="in_use">
+                    <div class="step-icon">🚐</div>
+                    <div class="step-label">乗車</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="status-step" data-step="moving">
+                    <div class="step-icon">🚀</div>
+                    <div class="step-label">移動中</div>
+                    <div class="step-connector"></div>
+                </div>
+                <div class="status-step" data-step="arrived">
+                    <div class="step-icon">🏁</div>
+                    <div class="step-label">到着</div>
+                </div>
+            </div>
+            <button class="status-bar-close" id="status-bar-close" title="閉じる">×</button>
+        </div>
+
+        <!-- ========= ロボット詳細モーダル（ボトムシート） ========= -->
+        <div class="modal-overlay" id="modal-overlay"></div>
+        <div class="robot-modal" id="robot-modal">
+            <div class="modal-handle"></div>
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-robot-name">ロボット詳細</h3>
+                <span class="modal-status-badge" id="modal-status-badge"></span>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 動的にコンテンツ挿入 -->
+            </div>
+            <div class="modal-actions" id="modal-actions">
+                <!-- 動的にボタン挿入 -->
+            </div>
+        </div>
+
+        <!-- フッター -->
+        <footer class="app-footer">
             <p>&copy; 2025 mobility app uu</p>
         </footer>
     </div>
 
     <script type="module" src="js/main.js"></script>
 </body>
+
 </html>
